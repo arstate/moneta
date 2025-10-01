@@ -1,16 +1,19 @@
+
 import React, { useState } from 'react';
 import type { Business } from '../types';
-import { PlusIcon, TrashIcon, PencilIcon } from './Icons';
+import { PlusIcon, TrashIcon, PencilIcon, UserCircleIcon, ArrowRightOnRectangleIcon } from './Icons';
 
 interface DashboardProps {
+  user: { displayName?: string | null; email?: string | null };
   businesses: Business[];
   onSelectBusiness: (id: string) => void;
   onAddBusiness: (name: string) => void;
   onDeleteBusiness: (id: string) => void;
   onRenameBusiness: (id: string, newName: string) => void;
+  onSignOut: () => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ businesses, onSelectBusiness, onAddBusiness, onDeleteBusiness, onRenameBusiness }) => {
+const Dashboard: React.FC<DashboardProps> = ({ user, businesses, onSelectBusiness, onAddBusiness, onDeleteBusiness, onRenameBusiness, onSignOut }) => {
   const [newBusinessName, setNewBusinessName] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [renamingBusiness, setRenamingBusiness] = useState<Business | null>(null);
@@ -51,17 +54,30 @@ const Dashboard: React.FC<DashboardProps> = ({ businesses, onSelectBusiness, onA
   return (
     <div className="p-4 sm:p-6 lg:p-8 min-h-screen">
       <div className="max-w-7xl mx-auto">
-        <header className="flex items-center justify-between pb-8">
-            <h1 className="text-4xl font-bold tracking-tight text-primary-900">Dasbor Usaha Anda</h1>
-            {!isAdding && (
-                 <button
+        <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-8">
+            <div>
+              <h1 className="text-4xl font-bold tracking-tight text-primary-900">Dasbor Usaha</h1>
+              <div className="flex items-center gap-2 mt-2 text-gray-600">
+                <UserCircleIcon className="w-5 h-5" />
+                <span className="text-sm font-medium">{user.displayName || user.email}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+                <button
                     onClick={() => setIsAdding(true)}
                     className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-white transition-colors rounded-lg shadow-sm bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
                  >
                     <PlusIcon className="w-5 h-5"/>
                     <span>Usaha Baru</span>
                 </button>
-            )}
+                <button
+                    onClick={onSignOut}
+                    className="p-2 text-gray-500 transition-colors rounded-lg hover:bg-gray-200 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+                    aria-label="Keluar"
+                 >
+                    <ArrowRightOnRectangleIcon className="w-6 h-6"/>
+                </button>
+            </div>
         </header>
 
         {isAdding && (
@@ -76,6 +92,7 @@ const Dashboard: React.FC<DashboardProps> = ({ businesses, onSelectBusiness, onA
                         placeholder="Masukkan nama usaha baru"
                         className="w-full px-4 py-2 bg-white text-gray-900 placeholder-gray-500 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                         required
+                        autoFocus
                     />
                     <div className="flex gap-2 mt-4 sm:mt-0">
                         <button type="submit" className="w-full sm:w-auto px-4 py-2 font-semibold text-white rounded-lg bg-primary-600 hover:bg-primary-700">Simpan</button>
@@ -110,7 +127,7 @@ const Dashboard: React.FC<DashboardProps> = ({ businesses, onSelectBusiness, onA
                 </button>
               </div>
               <h3 className="text-xl font-bold text-primary-800 truncate pr-16">{business.name}</h3>
-              <p className="mt-2 text-gray-500">{business.jobs.length} pekerjaan tercatat</p>
+              <p className="mt-2 text-gray-500">{business.jobs?.length || 0} pekerjaan tercatat</p>
             </div>
           ))}
         </div>
