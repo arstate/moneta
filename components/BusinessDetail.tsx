@@ -28,7 +28,7 @@ const generateJobOccurrencesForDate = (jobs: Job[], targetDate: string): JobOccu
         if (isNaN(jobStartDate.getTime())) continue;
 
         if (job.isRecurring) {
-            if (target >= jobStartDate && targetDayOfWeek === jobStartDate.getDay()) {
+            if (target >= jobStartDate && targetDayOfWeek === jobStartDate.getDay() && !job.exceptions?.includes(targetDate)) {
                 occurrences.push({
                     ...job,
                     occurrenceDate: targetDate,
@@ -129,6 +129,7 @@ interface BusinessDetailProps {
   onAddOtherExpense: (businessId: string, expense: Omit<Expense, 'id'>) => void;
   onEditOtherExpense: (businessId: string, expense: Expense) => void;
   onDeleteOtherExpense: (businessId: string, expenseId: string) => void;
+  onDetachAndEditOccurrence: (businessId: string, originalJobId: string, occurrenceDate: string, newJobData: Omit<Job, 'id' | 'completed'>) => void;
 }
 
 type View = 'schedule' | 'report';
@@ -138,7 +139,8 @@ type ChartType = 'bar' | 'line';
 const BusinessDetail: React.FC<BusinessDetailProps> = ({ 
     business, onBack, onAddJob, onEditJob, onDeleteJob, onToggleJobStatus,
     onAddOtherIncome, onEditOtherIncome, onDeleteOtherIncome,
-    onAddOtherExpense, onEditOtherExpense, onDeleteOtherExpense
+    onAddOtherExpense, onEditOtherExpense, onDeleteOtherExpense,
+    onDetachAndEditOccurrence
 }) => {
   const [view, setView] = useState<View>('schedule');
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('monthly');
@@ -155,8 +157,10 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
 
   // State for Job Modal
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
-  const [editingJob, setEditingJob] = useState<Job | null>(null);
+  const [editingOccurrence, setEditingOccurrence] = useState<JobOccurrence | null>(null);
   const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory, isRecurring: false });
+  const [applyToAll, setApplyToAll] = useState(false);
+
 
   // State for Other Income Modal
   const [isOtherIncomeModalOpen, setIsOtherIncomeModalOpen] = useState(false);
@@ -170,23 +174,24 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
 
   useEffect(() => {
     if (isJobModalOpen) {
-      if (editingJob) {
+      if (editingOccurrence) {
         setJobFormData({
-          title: editingJob.title,
-          description: editingJob.description || '',
-          notes: editingJob.notes || '',
-          date: editingJob.date,
-          deadline: editingJob.deadline ? editingJob.deadline.split('T')[1]?.substring(0, 5) : '',
-          grossIncome: String(editingJob.grossIncome),
-          expenses: String(editingJob.expenses),
-          category: editingJob.category || 'work',
-          isRecurring: editingJob.isRecurring || false,
+          title: editingOccurrence.title,
+          description: editingOccurrence.description || '',
+          notes: editingOccurrence.notes || '',
+          date: editingOccurrence.isRecurring ? editingOccurrence.occurrenceDate : editingOccurrence.date,
+          deadline: editingOccurrence.deadline ? editingOccurrence.deadline.split('T')[1]?.substring(0, 5) : '',
+          grossIncome: String(editingOccurrence.grossIncome),
+          expenses: String(editingOccurrence.expenses),
+          category: editingOccurrence.category || 'work',
+          isRecurring: editingOccurrence.isRecurring || false,
         });
+        setApplyToAll(false); // Default to not applying to all for safety
       } else {
         setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false });
       }
     }
-  }, [editingJob, isJobModalOpen]);
+  }, [editingOccurrence, isJobModalOpen]);
 
   useEffect(() => {
     if (isOtherIncomeModalOpen) {
@@ -245,7 +250,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
 
   const handleJobSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const jobData: Omit<Job, 'id' | 'completed'> = {
+    const jobData = {
       title: jobFormData.title,
       description: jobFormData.description,
       notes: jobFormData.notes,
@@ -257,16 +262,29 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       isRecurring: jobFormData.isRecurring,
     };
 
-    if (editingJob) {
-      onEditJob(business.id, { 
-        ...editingJob, 
-        ...jobData,
-      });
+    if (editingOccurrence) {
+        if (editingOccurrence.isRecurring && !applyToAll) {
+            // Detach and edit a single occurrence
+            const newStandaloneJobData = {
+                ...jobData,
+                date: editingOccurrence.occurrenceDate, // Use the specific date of the instance
+                isRecurring: false, // It's now a standalone job
+            };
+            onDetachAndEditOccurrence(business.id, editingOccurrence.id, editingOccurrence.occurrenceDate, newStandaloneJobData);
+        } else {
+             // Edit the original job (applies to all future occurrences if recurring)
+            onEditJob(business.id, { 
+                ...editingOccurrence, 
+                ...jobData,
+                // Ensure ID from original job is used
+                id: editingOccurrence.id,
+            });
+        }
     } else {
       onAddJob(business.id, { ...jobData, completions: jobData.isRecurring ? {} : undefined });
     }
     setIsJobModalOpen(false);
-    setEditingJob(null);
+    setEditingOccurrence(null);
   };
 
   const handleOtherIncomeSubmit = (e: React.FormEvent) => {
@@ -423,8 +441,8 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
             const dayOfWeek = startDate.getDay();
             let current = new Date(firstDay);
             while (current <= lastDay) {
-                if (current.getDay() === dayOfWeek && current >= startDate) {
-                    const dateYMD = formatDateToYMD(current);
+                const dateYMD = formatDateToYMD(current);
+                if (current.getDay() === dayOfWeek && current >= startDate && !job.exceptions?.includes(dateYMD)) {
                     counts.set(dateYMD, (counts.get(dateYMD) || 0) + 1);
                 }
                 current.setDate(current.getDate() + 1);
@@ -468,7 +486,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                     const checkDateYMD = formatDateToYMD(currentDate);
                     const occurrenceDeadline = new Date(`${checkDateYMD}T${deadlineTime}`);
 
-                    if (occurrenceDeadline > now) {
+                    if (occurrenceDeadline > now && !job.exceptions?.includes(checkDateYMD)) {
                         const isCompleted = job.completions && job.completions[checkDateYMD];
                         if (!isCompleted) {
                             upcoming.push({
@@ -608,7 +626,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
             {view === 'schedule' && (
                 <div className="space-y-6">
                     <div className="flex justify-end">
-                        <button onClick={() => { setEditingJob(null); setIsJobModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 font-semibold text-white rounded-lg shadow-sm bg-primary-600 hover:bg-primary-700">
+                        <button onClick={() => { setEditingOccurrence(null); setIsJobModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 font-semibold text-white rounded-lg shadow-sm bg-primary-600 hover:bg-primary-700">
                             <PlusIcon /> <span className="hidden sm:inline">Tambah Pekerjaan/Tugas</span><span className="sm:hidden">Baru</span>
                         </button>
                     </div>
@@ -782,7 +800,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                             </>
                                         )}
                                         <div className="flex justify-end gap-2 pt-1 self-start">
-                                            <button onClick={() => { setEditingJob(job); setIsJobModalOpen(true); }} className="p-2 text-gray-400 rounded-full hover:bg-blue-100 hover:text-blue-600">
+                                            <button onClick={() => { setEditingOccurrence(job); setIsJobModalOpen(true); }} className="p-2 text-gray-400 rounded-full hover:bg-blue-100 hover:text-blue-600">
                                                 <PencilIcon />
                                             </button>
                                             <button onClick={() => onDeleteJob(business.id, job.id)} className="p-2 text-gray-400 rounded-full hover:bg-red-100 hover:text-red-600">
@@ -938,7 +956,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       {isJobModalOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-50">
           <div className="w-full max-w-lg p-6 bg-white rounded-lg shadow-xl overflow-y-auto max-h-screen">
-            <h2 className="text-xl font-bold text-gray-900">{editingJob ? 'Edit Pekerjaan/Tugas' : 'Tambah Pekerjaan/Tugas Baru'}</h2>
+            <h2 className="text-xl font-bold text-gray-900">{editingOccurrence ? 'Edit Pekerjaan/Tugas' : 'Tambah Pekerjaan/Tugas Baru'}</h2>
             <form onSubmit={handleJobSubmit} className="mt-4 space-y-4">
                <div>
                  <label htmlFor="job-category" className="block text-sm font-medium text-gray-700">Kategori</label>
@@ -976,6 +994,19 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                     <label htmlFor="job-recurring" className="block text-sm font-medium text-gray-700">Ulangi setiap minggu</label>
                 </div>
               
+              {editingOccurrence?.isRecurring && (
+                <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <input
+                        id="apply-to-all"
+                        type="checkbox"
+                        checked={applyToAll}
+                        onChange={e => setApplyToAll(e.target.checked)}
+                        className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <label htmlFor="apply-to-all" className="block text-sm font-medium text-gray-700">Terapkan ke semua jadwal berulang</label>
+                </div>
+              )}
+
               {jobFormData.category === 'work' && (
                 <>
                     <input type="number" placeholder="Pendapatan Kotor (Rp)" value={jobFormData.grossIncome} onChange={e => setJobFormData({...jobFormData, grossIncome: e.target.value})} required className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />

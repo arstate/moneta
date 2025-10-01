@@ -74,6 +74,7 @@ const App: React.FC = () => {
                 deadline: j.deadline || undefined,
                 isRecurring: j.isRecurring || false,
                 completions: j.completions || {},
+                exceptions: j.exceptions || [],
             })),
             otherIncomes: b.otherIncomes || [],
             otherExpenses: b.otherExpenses || [],
@@ -190,6 +191,45 @@ const App: React.FC = () => {
     }
     handleEditJob(businessId, updatedJob);
   }, [businesses, handleEditJob]);
+  
+  const handleDetachAndEditOccurrence = useCallback((businessId: string, originalJobId: string, occurrenceDate: string, newJobData: Omit<Job, 'id' | 'completed'>) => {
+    if (isGuestMode) {
+        setBusinesses(prevBusinesses => {
+            const newBusinesses = JSON.parse(JSON.stringify(prevBusinesses));
+            const business = newBusinesses.find((b: Business) => b.id === businessId);
+            if (!business) return prevBusinesses;
+
+            const originalJob = business.jobs.find((j: Job) => j.id === originalJobId);
+            if (!originalJob) return prevBusinesses;
+
+            // 1. Add exception to original job
+            originalJob.exceptions = [...(originalJob.exceptions || []), occurrenceDate];
+
+            // 2. Add new standalone job
+            const newStandaloneJob = {
+                ...newJobData,
+                id: `guest_job_${Date.now()}`,
+                completed: false,
+            };
+            business.jobs.push(newStandaloneJob);
+            
+            return newBusinesses;
+        });
+    } else {
+        if (!currentUser) return;
+        const business = businesses.find(b => b.id === businessId);
+        const originalJob = business?.jobs.find(j => j.id === originalJobId);
+        if (!originalJob) return;
+
+        // 1. Update original job in Firebase with exception
+        const updatedExceptions = [...(originalJob.exceptions || []), occurrenceDate];
+        const originalJobRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs/${originalJobId}`);
+        originalJobRef.update({ exceptions: updatedExceptions });
+
+        // 2. Add new standalone job in Firebase
+        handleAddJob(businessId, newJobData);
+    }
+  }, [isGuestMode, currentUser, businesses, handleAddJob]);
 
 
   const handleAddOtherIncome = useCallback((businessId: string, income: Omit<OtherIncome, 'id'>) => {
@@ -294,6 +334,7 @@ const App: React.FC = () => {
         onAddOtherExpense={handleAddOtherExpense}
         onEditOtherExpense={handleEditOtherExpense}
         onDeleteOtherExpense={handleDeleteOtherExpense}
+        onDetachAndEditOccurrence={handleDetachAndEditOccurrence}
       />
     );
   }

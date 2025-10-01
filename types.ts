@@ -13,6 +13,7 @@ export interface Job {
   completed: boolean; // For non-recurring jobs
   isRecurring?: boolean;
   completions?: Record<string, boolean>; // For recurring jobs, e.g., { '2023-10-27': true }
+  exceptions?: string[]; // For recurring jobs, dates to skip, e.g., ['2023-11-03']
 }
 
 export interface OtherIncome {
