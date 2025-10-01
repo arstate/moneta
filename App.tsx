@@ -71,7 +71,9 @@ const App: React.FC = () => {
                 completed: j.completed || false, 
                 description: j.description || '', 
                 notes: j.notes || '',
-                deadline: j.deadline || undefined
+                deadline: j.deadline || undefined,
+                isRecurring: j.isRecurring || false,
+                completions: j.completions || {},
             })),
             otherIncomes: b.otherIncomes || [],
             otherExpenses: b.otherExpenses || [],
@@ -132,15 +134,20 @@ const App: React.FC = () => {
   const handleBackToDashboard = useCallback(() => { setSelectedBusinessId(null); }, []);
 
   const handleAddJob = useCallback((businessId: string, job: Omit<Job, 'id' | 'completed'>) => {
-    const newJob = { ...job, id: `guest_job_${Date.now()}`, completed: false };
+    const newJobData = { ...job, completed: false };
+    if (job.isRecurring) {
+        newJobData.completions = {};
+    }
+
     if (isGuestMode) {
-      setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, jobs: [...b.jobs, newJob] } : b));
+      const newJobWithId = { ...newJobData, id: `guest_job_${Date.now()}`};
+      setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, jobs: [...b.jobs, newJobWithId] } : b));
       return;
     }
     if (!currentUser) return;
     const jobsRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs`);
     const newJobRef = jobsRef.push();
-    newJobRef.set({ ...job, id: newJobRef.key, completed: false });
+    newJobRef.set({ ...newJobData, id: newJobRef.key });
   }, [currentUser, isGuestMode]);
 
   const handleEditJob = useCallback((businessId: string, updatedJob: Job) => {
@@ -164,18 +171,26 @@ const App: React.FC = () => {
     jobRef.remove();
   }, [currentUser, isGuestMode]);
   
-  const handleToggleJobStatus = useCallback((businessId: string, jobId: string) => {
-    if (isGuestMode) {
-      setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, jobs: b.jobs.map(j => j.id === jobId ? { ...j, completed: !j.completed } : j) } : b));
-      return;
+  const handleToggleJobStatus = useCallback((businessId: string, jobId: string, occurrenceDate: string) => {
+    const business = businesses.find(b => b.id === businessId);
+    const job = business?.jobs.find(j => j.id === jobId);
+    if (!job) return;
+
+    let updatedJob: Job;
+    if (job.isRecurring) {
+        const newCompletions = { ...(job.completions || {}) };
+        if (newCompletions[occurrenceDate]) {
+            delete newCompletions[occurrenceDate];
+        } else {
+            newCompletions[occurrenceDate] = true;
+        }
+        updatedJob = { ...job, completions: newCompletions };
+    } else {
+        updatedJob = { ...job, completed: !job.completed };
     }
-    if (!currentUser) return;
-    const job = businesses.find(b => b.id === businessId)?.jobs.find(j => j.id === jobId);
-    if (job) {
-      const jobRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs/${jobId}`);
-      jobRef.update({ completed: !job.completed });
-    }
-  }, [currentUser, businesses, isGuestMode]);
+    handleEditJob(businessId, updatedJob);
+  }, [businesses, handleEditJob]);
+
 
   const handleAddOtherIncome = useCallback((businessId: string, income: Omit<OtherIncome, 'id'>) => {
     const newIncome = { ...income, id: `guest_income_${Date.now()}` };
@@ -229,7 +244,7 @@ const App: React.FC = () => {
     }
     if(!currentUser) return;
     const { id, ...expenseData } = updatedExpense;
-    const expenseRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/otherExpenses/${id}`);
+    const expenseRef = db.ref(`users/${currentUser.uid}/businesses/${id}`);
     expenseRef.update(expenseData);
   }, [currentUser, isGuestMode]);
 

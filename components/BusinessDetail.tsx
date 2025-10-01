@@ -3,6 +3,54 @@ import type { Business, Job, OtherIncome, Expense, JobCategory } from '../types'
 import IncomeChart from './IncomeChart';
 import { ChevronLeftIcon, PlusIcon, TrashIcon, CalendarDaysIcon, ChartBarIcon, PencilIcon, Bars3Icon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, PresentationChartLineIcon, HomeIcon, ChevronRightIcon } from './Icons';
 
+// This function is timezone-safe and prevents off-by-one day errors.
+const formatDateToYMD = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
+type JobOccurrence = Job & {
+    occurrenceDate: string;
+    isComplete: boolean;
+    occurrenceId: string;
+};
+
+const generateJobOccurrencesForDate = (jobs: Job[], targetDate: string): JobOccurrence[] => {
+    const occurrences: JobOccurrence[] = [];
+    const target = new Date(`${targetDate}T00:00:00`);
+    if (isNaN(target.getTime())) return [];
+    const targetDayOfWeek = target.getDay();
+
+    for (const job of jobs) {
+        const jobStartDate = new Date(`${job.date}T00:00:00`);
+        if (isNaN(jobStartDate.getTime())) continue;
+
+        if (job.isRecurring) {
+            if (target >= jobStartDate && targetDayOfWeek === jobStartDate.getDay()) {
+                occurrences.push({
+                    ...job,
+                    occurrenceDate: targetDate,
+                    isComplete: !!(job.completions && job.completions[targetDate]),
+                    occurrenceId: `${job.id}-${targetDate}`,
+                });
+            }
+        } else {
+            if (job.date === targetDate) {
+                occurrences.push({
+                    ...job,
+                    occurrenceDate: job.date,
+                    isComplete: job.completed,
+                    occurrenceId: job.id,
+                });
+            }
+        }
+    }
+    return occurrences.sort((a, b) => a.title.localeCompare(b.title));
+};
+
+
 interface DeadlineCountdownProps {
   deadline: string;
 }
@@ -57,7 +105,7 @@ const DeadlineCountdown: React.FC<DeadlineCountdownProps> = ({ deadline }) => {
 
   return (
     <div className="flex items-center gap-1">
-        <svg className="w-4 h-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <svg className="w-4 h-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
         </svg>
         <span className="text-xs font-medium text-gray-600">
@@ -74,7 +122,7 @@ interface BusinessDetailProps {
   onAddJob: (businessId: string, job: Omit<Job, 'id' | 'completed'>) => void;
   onEditJob: (businessId: string, job: Job) => void;
   onDeleteJob: (businessId: string, jobId: string) => void;
-  onToggleJobStatus: (businessId: string, jobId: string) => void;
+  onToggleJobStatus: (businessId: string, jobId: string, occurrenceDate: string) => void;
   onAddOtherIncome: (businessId: string, income: Omit<OtherIncome, 'id'>) => void;
   onEditOtherIncome: (businessId: string, income: OtherIncome) => void;
   onDeleteOtherIncome: (businessId: string, incomeId: string) => void;
@@ -108,7 +156,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   // State for Job Modal
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
-  const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory });
+  const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory, isRecurring: false });
 
   // State for Other Income Modal
   const [isOtherIncomeModalOpen, setIsOtherIncomeModalOpen] = useState(false);
@@ -132,9 +180,10 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
           grossIncome: String(editingJob.grossIncome),
           expenses: String(editingJob.expenses),
           category: editingJob.category || 'work',
+          isRecurring: editingJob.isRecurring || false,
         });
       } else {
-        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' });
+        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false });
       }
     }
   }, [editingJob, isJobModalOpen]);
@@ -168,12 +217,20 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   }, [editingOtherExpense, isOtherExpenseModalOpen]);
 
 
-  const filteredJobs = useMemo(() => {
-    const sorted = [...business.jobs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    if (!selectedDate) {
-      return sorted;
+  const jobOccurrences = useMemo(() => {
+    if (selectedDate) {
+        return generateJobOccurrencesForDate(business.jobs, selectedDate);
     }
-    return sorted.filter(job => job.date === selectedDate);
+    // When no date is selected, we show a list of job "templates"
+    const sorted = [...business.jobs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return sorted.map(job => ({
+        ...job,
+        occurrenceDate: job.date,
+        // For the main list, 'isComplete' is based on the non-recurring flag, 
+        // or for recurring jobs, it's just false as it's a template.
+        isComplete: job.isRecurring ? false : job.completed, 
+        occurrenceId: job.id, 
+    }));
   }, [business.jobs, selectedDate]);
 
 
@@ -188,7 +245,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
 
   const handleJobSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const jobData = {
+    const jobData: Omit<Job, 'id' | 'completed'> = {
       title: jobFormData.title,
       description: jobFormData.description,
       notes: jobFormData.notes,
@@ -197,11 +254,16 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       category: jobFormData.category,
       grossIncome: jobFormData.category === 'work' ? parseFloat(jobFormData.grossIncome) || 0 : 0,
       expenses: jobFormData.category === 'work' ? parseFloat(jobFormData.expenses) || 0 : 0,
+      isRecurring: jobFormData.isRecurring,
     };
+
     if (editingJob) {
-      onEditJob(business.id, { ...jobData, id: editingJob.id, completed: editingJob.completed });
+      onEditJob(business.id, { 
+        ...editingJob, 
+        ...jobData,
+      });
     } else {
-      onAddJob(business.id, jobData);
+      onAddJob(business.id, { ...jobData, completions: jobData.isRecurring ? {} : undefined });
     }
     setIsJobModalOpen(false);
     setEditingJob(null);
@@ -261,44 +323,42 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
 
   const incomeData = useMemo(() => {
     const dataMap = new Map<string, { gross: number; expenses: number }>();
-    
-    const allTransactions = [
-        ...business.jobs.map(j => ({ type: 'job', date: j.date, gross: j.grossIncome, expenses: j.expenses })),
-        ...business.otherIncomes.map(i => ({ type: 'income', date: i.date, gross: i.amount, expenses: 0 })),
-        ...business.otherExpenses.map(e => ({ type: 'expense', date: e.date, gross: 0, expenses: e.amount }))
-    ];
 
-    const filteredTransactions = allTransactions.filter(item => {
-        const itemDate = new Date(item.date);
-        if (isNaN(itemDate.getTime())) return false;
-        
+    const processTransaction = (dateStr: string, gross: number, expenses: number) => {
+        const itemDate = new Date(`${dateStr}T00:00:00`);
+        if (isNaN(itemDate.getTime())) return;
+
         const yearMatch = filterYear === 'all' || itemDate.getFullYear().toString() === filterYear;
-
         const itemMonth = itemDate.getMonth() + 1;
         const startM = parseInt(startMonth);
         const endM = parseInt(endMonth);
         const monthMatch = itemMonth >= startM && itemMonth <= endM;
 
-        return yearMatch && monthMatch;
+        if (yearMatch && monthMatch) {
+            let key: string;
+            if (reportPeriod === 'daily') key = dateStr;
+            else if (reportPeriod === 'monthly') key = `${itemDate.getFullYear()}-${String(itemMonth).padStart(2, '0')}`;
+            else key = `${itemDate.getFullYear()}`;
+            
+            const existing = dataMap.get(key) || { gross: 0, expenses: 0 };
+            existing.gross += gross;
+            existing.expenses += expenses;
+            dataMap.set(key, existing);
+        }
+    };
+    
+    business.jobs.forEach(job => {
+        if (job.isRecurring && job.completions) {
+            Object.keys(job.completions).forEach(completionDate => {
+                processTransaction(completionDate, job.grossIncome, job.expenses);
+            });
+        } else if (!job.isRecurring && job.completed) {
+            processTransaction(job.date, job.grossIncome, job.expenses);
+        }
     });
 
-    filteredTransactions.forEach(item => {
-      let key: string;
-      const itemDate = new Date(item.date);
-
-      if (reportPeriod === 'daily') {
-        key = item.date;
-      } else if (reportPeriod === 'monthly') {
-        key = `${itemDate.getFullYear()}-${String(itemDate.getMonth() + 1).padStart(2, '0')}`;
-      } else { // yearly
-        key = `${itemDate.getFullYear()}`;
-      }
-
-      const existing = dataMap.get(key) || { gross: 0, expenses: 0 };
-      existing.gross += item.gross;
-      existing.expenses += item.expenses;
-      dataMap.set(key, existing);
-    });
+    business.otherIncomes.forEach(i => processTransaction(i.date, i.amount, 0));
+    business.otherExpenses.forEach(e => processTransaction(e.date, 0, e.amount));
     
     return Array.from(dataMap.entries())
       .map(([name, data]) => ({
@@ -309,7 +369,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
-  }, [business.jobs, business.otherIncomes, business.otherExpenses, reportPeriod, startMonth, endMonth, filterYear]);
+  }, [business, reportPeriod, startMonth, endMonth, filterYear]);
 
   const toggleJobExpansion = (jobId: string) => {
     setExpandedJobIds(prev => {
@@ -350,30 +410,91 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   const jobCountsByDate = useMemo(() => {
     const counts = new Map<string, number>();
     business.jobs.forEach(job => {
-      if (job.date) {
-        counts.set(job.date, (counts.get(job.date) || 0) + 1);
-      }
+        if (!job.date) return;
+        const startDate = new Date(`${job.date}T00:00:00`);
+        if (isNaN(startDate.getTime())) return;
+
+        const year = currentDate.getFullYear();
+        const month = currentDate.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+
+        if (job.isRecurring) {
+            const dayOfWeek = startDate.getDay();
+            let current = new Date(firstDay);
+            while (current <= lastDay) {
+                if (current.getDay() === dayOfWeek && current >= startDate) {
+                    const dateYMD = formatDateToYMD(current);
+                    counts.set(dateYMD, (counts.get(dateYMD) || 0) + 1);
+                }
+                current.setDate(current.getDate() + 1);
+            }
+        } else {
+            const jobDate = new Date(`${job.date}T00:00:00`);
+            if (jobDate.getFullYear() === year && jobDate.getMonth() === month) {
+                counts.set(job.date, (counts.get(job.date) || 0) + 1);
+            }
+        }
     });
     return counts;
-  }, [business.jobs]);
+  }, [business.jobs, currentDate]);
+
 
   const handlePrevMonth = () => setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
   const handleNextMonth = () => setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   
-  // This function is timezone-safe and prevents off-by-one day errors.
-  const formatDateToYMD = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-
   const upcomingDeadlines = useMemo(() => {
     const now = new Date();
-    return business.jobs
-      .filter(job => job.deadline && !job.completed && new Date(job.deadline) > now)
-      .sort((a, b) => new Date(a.deadline!).getTime() - new Date(b.deadline!).getTime())
+    const upcoming: (Job & { occurrenceDate: string; deadline: string; })[] = [];
+    const checkRangeDays = 60; // Check for occurrences in the next 60 days.
+
+    business.jobs.forEach(job => {
+        if (!job.deadline) return;
+
+        const deadlineTime = job.deadline.split('T')[1];
+        if (!deadlineTime) return;
+
+        if (job.isRecurring) {
+            const startDate = new Date(`${job.date}T00:00:00`);
+            if (isNaN(startDate.getTime())) return;
+            
+            const jobDayOfWeek = startDate.getDay();
+            
+            let currentDate = new Date(now);
+            currentDate.setHours(0, 0, 0, 0);
+
+            for (let i = 0; i < checkRangeDays; i++) {
+                if (currentDate >= startDate && currentDate.getDay() === jobDayOfWeek) {
+                    const checkDateYMD = formatDateToYMD(currentDate);
+                    const occurrenceDeadline = new Date(`${checkDateYMD}T${deadlineTime}`);
+
+                    if (occurrenceDeadline > now) {
+                        const isCompleted = job.completions && job.completions[checkDateYMD];
+                        if (!isCompleted) {
+                            upcoming.push({
+                                ...job,
+                                deadline: occurrenceDeadline.toISOString(),
+                                occurrenceDate: checkDateYMD,
+                            });
+                        }
+                    }
+                }
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+        } else {
+            const jobDeadline = new Date(job.deadline);
+            if (!job.completed && jobDeadline > now) {
+                upcoming.push({
+                    ...job,
+                    occurrenceDate: job.date,
+                    deadline: job.deadline, // Keep original
+                });
+            }
+        }
+    });
+
+    return upcoming
+      .sort((a, b) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
       .slice(0, 5);
   }, [business.jobs]);
 
@@ -495,12 +616,12 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                     <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
                         <div className="p-4 bg-white rounded-lg shadow lg:col-span-3">
                             <div className="flex items-center justify-between mb-4">
-                                <button onClick={handlePrevMonth} className="p-2 rounded-full hover:bg-gray-100">
-                                <ChevronLeftIcon className="w-5 h-5" />
+                                <button onClick={handlePrevMonth} className="p-2 text-primary-600 rounded-full hover:bg-primary-100">
+                                <ChevronLeftIcon className="w-5 h-5 text-primary-600" />
                                 </button>
                                 <h3 className="text-lg font-semibold text-gray-800">{calendarData.monthName} {calendarData.year}</h3>
-                                <button onClick={handleNextMonth} className="p-2 rounded-full hover:bg-gray-100">
-                                <ChevronRightIcon className="w-5 h-5" />
+                                <button onClick={handleNextMonth} className="p-2 text-primary-600 rounded-full hover:bg-primary-100">
+                                <ChevronRightIcon className="w-5 h-5 text-primary-600" />
                                 </button>
                             </div>
                             <div className="grid grid-cols-7 gap-1 text-center text-xs text-gray-500 font-semibold">
@@ -528,8 +649,8 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                         disabled={!dayInfo.isCurrentMonth}
                                     >
                                         {dayInfo.day}
-                                        {jobCount > 0 && !isSelected && (
-                                            <span className="absolute bottom-0 right-0 flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-semibold text-white bg-red-500 rounded-full border border-white">
+                                        {jobCount > 0 && (
+                                            <span className={`absolute -bottom-1 -right-1 flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-semibold text-white ${isSelected ? 'bg-orange-500' : 'bg-primary-500'} rounded-full border-2 border-white`}>
                                                 {jobCount}
                                             </span>
                                         )}
@@ -544,12 +665,12 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                             {upcomingDeadlines.length > 0 ? (
                                 <ul className="space-y-3">
                                 {upcomingDeadlines.map(job => (
-                                    <li key={job.id} className="p-3 bg-gray-50 rounded-lg">
-                                    <p className="font-semibold text-gray-700 truncate">{job.title}</p>
-                                    <div className="text-xs text-gray-500 mt-1 flex justify-between items-center">
-                                        <span>{new Date(job.deadline!).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                                        <DeadlineCountdown deadline={job.deadline!} />
-                                    </div>
+                                    <li key={`${job.id}-${job.occurrenceDate}`} className="p-3 bg-gray-50 rounded-lg">
+                                        <p className="font-semibold text-gray-700 truncate">{job.title}</p>
+                                        <div className="text-xs text-gray-500 mt-1 flex justify-between items-center">
+                                            <span>{new Date(job.deadline!).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                                            <DeadlineCountdown deadline={job.deadline!} />
+                                        </div>
                                     </li>
                                 ))}
                                 </ul>
@@ -577,43 +698,58 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                             )}
                         </div>
                         <div className="space-y-4">
-                            {filteredJobs.length > 0 ? filteredJobs.map(job => {
-                                const isExpanded = expandedJobIds.has(job.id);
+                            {jobOccurrences.length > 0 ? jobOccurrences.map(job => {
+                                const isExpanded = expandedJobIds.has(job.occurrenceId);
                                 const isExpandable = !!job.description || !!job.notes;
+                                const isCompleted = job.isComplete;
+                                const today = formatDateToYMD(new Date());
+                                const isFuture = job.occurrenceDate > today;
+                                const isCheckboxDisabled = (selectedDate || job.isRecurring) ? isFuture : false;
+                                
+                                let occurrenceDeadline = job.deadline;
+                                if (job.deadline && job.isRecurring) {
+                                    const timePart = job.deadline.split('T')[1];
+                                    if (timePart) {
+                                        occurrenceDeadline = `${job.occurrenceDate}T${timePart}`;
+                                    }
+                                }
 
                                 return (
-                                    <div key={job.id} className="grid grid-cols-1 md:grid-cols-6 items-start gap-4 p-4 bg-white rounded-lg shadow">
+                                    <div key={job.occurrenceId} className="grid grid-cols-1 md:grid-cols-6 items-start gap-4 p-4 bg-white rounded-lg shadow">
                                         <div className={`flex items-start gap-3 ${job.category === 'work' ? 'md:col-span-3' : 'md:col-span-5'}`}>
                                             <input 
                                                 type="checkbox"
-                                                checked={job.completed}
-                                                onChange={() => onToggleJobStatus(business.id, job.id)}
-                                                className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 mt-1 flex-shrink-0"
+                                                checked={isCompleted}
+                                                onChange={() => onToggleJobStatus(business.id, job.id, job.occurrenceDate)}
+                                                disabled={isCheckboxDisabled}
+                                                className={`h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 mt-1 flex-shrink-0 ${isCheckboxDisabled ? 'cursor-not-allowed bg-gray-200' : ''}`}
+                                                title={isCheckboxDisabled ? 'Hanya dapat diselesaikan pada atau setelah tanggal jadwal' : ''}
                                             />
                                             <div className="flex-grow">
-                                                <p className={`font-bold text-gray-800 ${job.completed ? 'line-through text-gray-400' : ''}`}>
+                                                <p className={`font-bold text-gray-800 ${isCompleted ? 'line-through text-gray-400' : ''}`}>
                                                     {job.category === 'task' && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full mr-2">TUGAS</span>}
+                                                    {job.isRecurring && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full mr-2">MINGGUAN</span>}
                                                     {job.title}
                                                 </p>
                                                 
-                                                {job.deadline && !job.completed && (
+                                                {occurrenceDeadline && !isCompleted && (
                                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
                                                         <span className="flex items-center bg-orange-100 text-orange-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
                                                             <svg className="w-3 h-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                             </svg>
-                                                            {new Date(job.deadline).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                            {new Date(occurrenceDeadline).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                                         </span>
-                                                        <DeadlineCountdown deadline={job.deadline} />
+                                                        <DeadlineCountdown deadline={occurrenceDeadline} />
                                                     </div>
                                                 )}
 
                                                 <div className={`relative overflow-hidden transition-all duration-300 ease-in-out ${isExpandable && !isExpanded ? 'max-h-20' : 'max-h-[1000px]'}`}>
-                                                    {job.description && <p className={`text-sm text-gray-600 mt-1 whitespace-pre-wrap ${job.completed ? 'line-through text-gray-400' : ''}`}>{job.description}</p>}
+                                                    {job.description && <p className={`text-sm text-gray-600 mt-1 whitespace-pre-wrap ${isCompleted ? 'line-through text-gray-400' : ''}`}>{job.description}</p>}
                                                     {job.notes && (
-                                                        <div className={`mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md ${job.completed ? 'opacity-60' : ''}`}>
+                                                        <div className={`mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md ${isCompleted ? 'opacity-60' : ''}`}>
                                                             <p className="text-xs font-semibold text-yellow-800">Catatan:</p>
-                                                            <p className={`text-sm text-yellow-700 whitespace-pre-wrap ${job.completed ? 'line-through' : ''}`}>{job.notes}</p>
+                                                            <p className={`text-sm text-yellow-700 whitespace-pre-wrap ${isCompleted ? 'line-through' : ''}`}>{job.notes}</p>
                                                         </div>
                                                     )}
                                                     {isExpandable && !isExpanded && (
@@ -622,10 +758,10 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                                 </div>
 
                                                 <div className="flex justify-between items-center mt-2">
-                                                    <p className={`text-sm text-gray-500 ${job.completed ? 'line-through text-gray-400' : ''}`}>{new Date(job.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                                                    <p className={`text-sm text-gray-500 ${isCompleted ? 'line-through text-gray-400' : ''}`}>{new Date(`${job.occurrenceDate}T00:00:00`).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                                                     
                                                     {isExpandable && (
-                                                        <button onClick={() => toggleJobExpansion(job.id)} className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-800 font-semibold z-10">
+                                                        <button onClick={() => toggleJobExpansion(job.occurrenceId)} className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-800 font-semibold z-10">
                                                             <span>{isExpanded ? 'Sembunyikan' : 'Lihat Detail'}</span>
                                                             {isExpanded ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
                                                         </button>
@@ -821,13 +957,24 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
               <textarea placeholder="Deskripsi (opsional)" value={jobFormData.description} onChange={e => setJobFormData({...jobFormData, description: e.target.value})} className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" rows={3}></textarea>
               <textarea placeholder="Catatan Tambahan (opsional)" value={jobFormData.notes} onChange={e => setJobFormData({...jobFormData, notes: e.target.value})} className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" rows={2}></textarea>
               <div>
-                <label htmlFor="job-date" className="block text-sm font-medium text-gray-700">Tanggal</label>
+                <label htmlFor="job-date" className="block text-sm font-medium text-gray-700">Tanggal Mulai</label>
                 <input id="job-date" type="date" value={jobFormData.date} onChange={e => setJobFormData({...jobFormData, date: e.target.value})} required className="mt-1 w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
               </div>
               <div>
                 <label htmlFor="job-deadline" className="block text-sm font-medium text-gray-700">Tenggat Waktu (Opsional)</label>
                 <input id="job-deadline" type="time" value={jobFormData.deadline} onChange={e => setJobFormData({...jobFormData, deadline: e.target.value})} className="mt-1 w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
               </div>
+
+                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <input
+                        id="job-recurring"
+                        type="checkbox"
+                        checked={jobFormData.isRecurring}
+                        onChange={e => setJobFormData({ ...jobFormData, isRecurring: e.target.checked })}
+                        className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <label htmlFor="job-recurring" className="block text-sm font-medium text-gray-700">Ulangi setiap minggu</label>
+                </div>
               
               {jobFormData.category === 'work' && (
                 <>

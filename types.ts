@@ -6,11 +6,13 @@ export interface Job {
   category: JobCategory;
   description?: string;
   notes?: string;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (Start date for recurring jobs)
   deadline?: string; // YYYY-MM-DDTHH:mm
   grossIncome: number;
   expenses: number;
-  completed: boolean;
+  completed: boolean; // For non-recurring jobs
+  isRecurring?: boolean;
+  completions?: Record<string, boolean>; // For recurring jobs, e.g., { '2023-10-27': true }
 }
 
 export interface OtherIncome {
