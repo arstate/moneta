@@ -101,6 +101,9 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
+  const [currentDate, setCurrentDate] = useState(new Date()); // For calendar month/year
+  const [selectedDate, setSelectedDate] = useState<string | null>(null); // For filtering jobs
+
 
   // State for Job Modal
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
@@ -125,7 +128,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
           description: editingJob.description || '',
           notes: editingJob.notes || '',
           date: editingJob.date,
-          deadline: editingJob.deadline || '',
+          deadline: editingJob.deadline ? editingJob.deadline.split('T')[1]?.substring(0, 5) : '',
           grossIncome: String(editingJob.grossIncome),
           expenses: String(editingJob.expenses),
           category: editingJob.category || 'work',
@@ -165,9 +168,14 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   }, [editingOtherExpense, isOtherExpenseModalOpen]);
 
 
-  const sortedJobs = useMemo(() => {
-    return [...business.jobs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [business.jobs]);
+  const filteredJobs = useMemo(() => {
+    const sorted = [...business.jobs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    if (!selectedDate) {
+      return sorted;
+    }
+    return sorted.filter(job => job.date === selectedDate);
+  }, [business.jobs, selectedDate]);
+
 
   const sortedOtherIncomes = useMemo(() => {
     return [...business.otherIncomes].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -185,7 +193,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       description: jobFormData.description,
       notes: jobFormData.notes,
       date: jobFormData.date,
-      deadline: jobFormData.deadline || undefined,
+      deadline: jobFormData.date && jobFormData.deadline ? `${jobFormData.date}T${jobFormData.deadline}` : undefined,
       category: jobFormData.category,
       grossIncome: jobFormData.category === 'work' ? parseFloat(jobFormData.grossIncome) || 0 : 0,
       expenses: jobFormData.category === 'work' ? parseFloat(jobFormData.expenses) || 0 : 0,
@@ -315,6 +323,60 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
     });
   };
 
+  const calendarData = useMemo(() => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const firstDayOfMonth = new Date(year, month, 1);
+    const lastDayOfMonth = new Date(year, month + 1, 0);
+    const daysInMonth = lastDayOfMonth.getDate();
+    const startDayOfWeek = firstDayOfMonth.getDay(); 
+    const grid = [];
+    const prevMonthLastDay = new Date(year, month, 0).getDate();
+    for (let i = startDayOfWeek - 1; i >= 0; i--) {
+      grid.push({ day: prevMonthLastDay - i, isCurrentMonth: false, date: new Date(year, month - 1, prevMonthLastDay - i) });
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      grid.push({ day: i, isCurrentMonth: true, date: new Date(year, month, i) });
+    }
+    const gridEndIndex = grid.length % 7;
+    if (gridEndIndex !== 0) {
+      for (let i = 1; i <= 7 - gridEndIndex; i++) {
+        grid.push({ day: i, isCurrentMonth: false, date: new Date(year, month + 1, i) });
+      }
+    }
+    return { grid, monthName: firstDayOfMonth.toLocaleString('id-ID', { month: 'long' }), year, };
+  }, [currentDate]);
+
+  const jobCountsByDate = useMemo(() => {
+    const counts = new Map<string, number>();
+    business.jobs.forEach(job => {
+      if (job.date) {
+        counts.set(job.date, (counts.get(job.date) || 0) + 1);
+      }
+    });
+    return counts;
+  }, [business.jobs]);
+
+  const handlePrevMonth = () => setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  const handleNextMonth = () => setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  
+  // This function is timezone-safe and prevents off-by-one day errors.
+  const formatDateToYMD = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+
+  const upcomingDeadlines = useMemo(() => {
+    const now = new Date();
+    return business.jobs
+      .filter(job => job.deadline && !job.completed && new Date(job.deadline) > now)
+      .sort((a, b) => new Date(a.deadline!).getTime() - new Date(b.deadline!).getTime())
+      .slice(0, 5);
+  }, [business.jobs]);
+
   const months = [
     { value: '1', label: 'Januari' }, { value: '2', label: 'Februari' },
     { value: '3', label: 'Maret' }, { value: '4', label: 'April' },
@@ -401,9 +463,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       <aside className={`fixed inset-y-0 left-0 z-30 bg-gray-800 text-white transition-all duration-300 ease-in-out transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 ${isSidebarCollapsed ? 'w-20' : 'w-64'}`}>
         <div className="relative flex flex-col h-full">
             <SidebarContent />
-
-            {/* Desktop Sidebar Toggle */}
-            <div className="absolute top-4 -right-3.5 hidden md:block">
+            <div className="absolute top-1/2 -translate-y-1/2 -right-3.5 hidden md:block">
                 <button
                     onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
                     className="p-1 bg-gray-700 text-white rounded-full border-2 border-gray-800 hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
@@ -425,96 +485,182 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
             </header>
 
             {view === 'schedule' && (
-                <div>
-                    <div className="flex justify-end mb-4">
+                <div className="space-y-6">
+                    <div className="flex justify-end">
                         <button onClick={() => { setEditingJob(null); setIsJobModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 font-semibold text-white rounded-lg shadow-sm bg-primary-600 hover:bg-primary-700">
                             <PlusIcon /> <span className="hidden sm:inline">Tambah Pekerjaan/Tugas</span><span className="sm:hidden">Baru</span>
                         </button>
                     </div>
-                    <div className="space-y-4">
-                        {sortedJobs.length > 0 ? sortedJobs.map(job => {
-                             const isExpanded = expandedJobIds.has(job.id);
-                             const isExpandable = !!job.description || !!job.notes;
 
-                             return (
-                                <div key={job.id} className="grid grid-cols-1 md:grid-cols-6 items-start gap-4 p-4 bg-white rounded-lg shadow">
-                                    <div className={`flex items-start gap-3 ${job.category === 'work' ? 'md:col-span-3' : 'md:col-span-5'}`}>
-                                        <input 
-                                            type="checkbox"
-                                            checked={job.completed}
-                                            onChange={() => onToggleJobStatus(business.id, job.id)}
-                                            className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 mt-1 flex-shrink-0"
-                                        />
-                                        <div className="flex-grow">
-                                            <p className={`font-bold text-gray-800 ${job.completed ? 'line-through text-gray-400' : ''}`}>
-                                                {job.category === 'task' && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full mr-2">TUGAS</span>}
-                                                {job.title}
-                                            </p>
-                                            
-                                            {job.deadline && !job.completed && (
-                                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
-                                                    <span className="flex items-center bg-orange-100 text-orange-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-                                                        <svg className="w-3 h-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                        </svg>
-                                                        {new Date(job.deadline).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                    </span>
-                                                    <DeadlineCountdown deadline={job.deadline} />
-                                                </div>
-                                            )}
+                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                        <div className="p-4 bg-white rounded-lg shadow lg:col-span-3">
+                            <div className="flex items-center justify-between mb-4">
+                                <button onClick={handlePrevMonth} className="p-2 rounded-full hover:bg-gray-100">
+                                <ChevronLeftIcon className="w-5 h-5" />
+                                </button>
+                                <h3 className="text-lg font-semibold text-gray-800">{calendarData.monthName} {calendarData.year}</h3>
+                                <button onClick={handleNextMonth} className="p-2 rounded-full hover:bg-gray-100">
+                                <ChevronRightIcon className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-1 text-center text-xs text-gray-500 font-semibold">
+                                {['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'].map(day => <div key={day}>{day}</div>)}
+                            </div>
+                            <div className="grid grid-cols-7 gap-1 mt-2">
+                                {calendarData.grid.map((dayInfo, index) => {
+                                const dateYMD = formatDateToYMD(dayInfo.date);
+                                const jobCount = dayInfo.isCurrentMonth ? (jobCountsByDate.get(dateYMD) || 0) : 0;
+                                const isToday = dayInfo.isCurrentMonth && dateYMD === formatDateToYMD(new Date());
+                                const isSelected = selectedDate === dateYMD;
+                                return (
+                                    <div key={index} className="flex justify-center">
+                                    <button
+                                        onClick={() => dayInfo.isCurrentMonth && setSelectedDate(isSelected ? null : dateYMD)}
+                                        className={`w-9 h-9 flex items-center justify-center rounded-full text-sm relative transition-colors
+                                        ${isSelected
+                                            ? 'bg-primary-600 text-white font-bold'
+                                            : !dayInfo.isCurrentMonth
+                                            ? 'text-gray-300 cursor-default'
+                                            : isToday
+                                            ? 'font-bold text-orange-500 hover:bg-orange-100'
+                                            : 'text-primary-700 hover:bg-primary-100'
+                                        }`}
+                                        disabled={!dayInfo.isCurrentMonth}
+                                    >
+                                        {dayInfo.day}
+                                        {jobCount > 0 && !isSelected && (
+                                            <span className="absolute bottom-0 right-0 flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-semibold text-white bg-red-500 rounded-full border border-white">
+                                                {jobCount}
+                                            </span>
+                                        )}
+                                    </button>
+                                    </div>
+                                );
+                                })}
+                            </div>
+                        </div>
+                        <div className="p-4 bg-white rounded-lg shadow lg:col-span-2 h-full">
+                            <h3 className="text-lg font-semibold text-gray-800 mb-4">Tenggat Waktu Terdekat</h3>
+                            {upcomingDeadlines.length > 0 ? (
+                                <ul className="space-y-3">
+                                {upcomingDeadlines.map(job => (
+                                    <li key={job.id} className="p-3 bg-gray-50 rounded-lg">
+                                    <p className="font-semibold text-gray-700 truncate">{job.title}</p>
+                                    <div className="text-xs text-gray-500 mt-1 flex justify-between items-center">
+                                        <span>{new Date(job.deadline!).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                                        <DeadlineCountdown deadline={job.deadline!} />
+                                    </div>
+                                    </li>
+                                ))}
+                                </ul>
+                            ) : (
+                                <div className="flex items-center justify-center h-full -mt-8">
+                                    <p className="text-sm text-gray-500 text-center py-8">Tidak ada tenggat waktu terdekat.</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-2">
+                             <h2 className="text-2xl font-bold text-gray-800">Daftar Jadwal</h2>
+                            {selectedDate && (
+                                <div className="flex items-center gap-2">
+                                <p className="text-sm text-gray-600">
+                                    Menampilkan untuk: <span className="font-semibold text-primary-700">{new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                                </p>
+                                <button onClick={() => setSelectedDate(null)} className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-red-600 bg-red-100 rounded-full hover:bg-red-200">
+                                    <XMarkIcon className="w-3 h-3"/>
+                                    <span>Hapus Filter</span>
+                                </button>
+                                </div>
+                            )}
+                        </div>
+                        <div className="space-y-4">
+                            {filteredJobs.length > 0 ? filteredJobs.map(job => {
+                                const isExpanded = expandedJobIds.has(job.id);
+                                const isExpandable = !!job.description || !!job.notes;
 
-                                            <div className={`relative overflow-hidden transition-all duration-300 ease-in-out ${isExpandable && !isExpanded ? 'max-h-20' : 'max-h-[1000px]'}`}>
-                                                {job.description && <p className={`text-sm text-gray-600 mt-1 whitespace-pre-wrap ${job.completed ? 'line-through text-gray-400' : ''}`}>{job.description}</p>}
-                                                {job.notes && (
-                                                    <div className={`mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md ${job.completed ? 'opacity-60' : ''}`}>
-                                                        <p className="text-xs font-semibold text-yellow-800">Catatan:</p>
-                                                        <p className={`text-sm text-yellow-700 whitespace-pre-wrap ${job.completed ? 'line-through' : ''}`}>{job.notes}</p>
+                                return (
+                                    <div key={job.id} className="grid grid-cols-1 md:grid-cols-6 items-start gap-4 p-4 bg-white rounded-lg shadow">
+                                        <div className={`flex items-start gap-3 ${job.category === 'work' ? 'md:col-span-3' : 'md:col-span-5'}`}>
+                                            <input 
+                                                type="checkbox"
+                                                checked={job.completed}
+                                                onChange={() => onToggleJobStatus(business.id, job.id)}
+                                                className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 mt-1 flex-shrink-0"
+                                            />
+                                            <div className="flex-grow">
+                                                <p className={`font-bold text-gray-800 ${job.completed ? 'line-through text-gray-400' : ''}`}>
+                                                    {job.category === 'task' && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full mr-2">TUGAS</span>}
+                                                    {job.title}
+                                                </p>
+                                                
+                                                {job.deadline && !job.completed && (
+                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+                                                        <span className="flex items-center bg-orange-100 text-orange-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+                                                            <svg className="w-3 h-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                            </svg>
+                                                            {new Date(job.deadline).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                        </span>
+                                                        <DeadlineCountdown deadline={job.deadline} />
                                                     </div>
                                                 )}
-                                                {isExpandable && !isExpanded && (
-                                                    <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-white to-transparent"></div>
-                                                )}
-                                            </div>
 
-                                            <div className="flex justify-between items-center mt-2">
-                                                <p className={`text-sm text-gray-500 ${job.completed ? 'line-through text-gray-400' : ''}`}>{new Date(job.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                                                
-                                                {isExpandable && (
-                                                    <button onClick={() => toggleJobExpansion(job.id)} className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-800 font-semibold z-10">
-                                                        <span>{isExpanded ? 'Sembunyikan' : 'Lihat Detail'}</span>
-                                                        {isExpanded ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
-                                                    </button>
-                                                )}
+                                                <div className={`relative overflow-hidden transition-all duration-300 ease-in-out ${isExpandable && !isExpanded ? 'max-h-20' : 'max-h-[1000px]'}`}>
+                                                    {job.description && <p className={`text-sm text-gray-600 mt-1 whitespace-pre-wrap ${job.completed ? 'line-through text-gray-400' : ''}`}>{job.description}</p>}
+                                                    {job.notes && (
+                                                        <div className={`mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md ${job.completed ? 'opacity-60' : ''}`}>
+                                                            <p className="text-xs font-semibold text-yellow-800">Catatan:</p>
+                                                            <p className={`text-sm text-yellow-700 whitespace-pre-wrap ${job.completed ? 'line-through' : ''}`}>{job.notes}</p>
+                                                        </div>
+                                                    )}
+                                                    {isExpandable && !isExpanded && (
+                                                        <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-white to-transparent"></div>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex justify-between items-center mt-2">
+                                                    <p className={`text-sm text-gray-500 ${job.completed ? 'line-through text-gray-400' : ''}`}>{new Date(job.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                                                    
+                                                    {isExpandable && (
+                                                        <button onClick={() => toggleJobExpansion(job.id)} className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-800 font-semibold z-10">
+                                                            <span>{isExpanded ? 'Sembunyikan' : 'Lihat Detail'}</span>
+                                                            {isExpanded ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
+                                        {job.category === 'work' && (
+                                            <>
+                                                <div className="pt-1">
+                                                    <p className="text-sm text-gray-500">Pdt. Kotor</p>
+                                                    <p className="font-semibold text-green-600">{formatCurrency(job.grossIncome)}</p>
+                                                </div>
+                                                <div className="pt-1">
+                                                    <p className="text-sm text-gray-500">Pengeluaran</p>
+                                                    <p className="font-semibold text-red-600">{formatCurrency(job.expenses)}</p>
+                                                </div>
+                                            </>
+                                        )}
+                                        <div className="flex justify-end gap-2 pt-1 self-start">
+                                            <button onClick={() => { setEditingJob(job); setIsJobModalOpen(true); }} className="p-2 text-gray-400 rounded-full hover:bg-blue-100 hover:text-blue-600">
+                                                <PencilIcon />
+                                            </button>
+                                            <button onClick={() => onDeleteJob(business.id, job.id)} className="p-2 text-gray-400 rounded-full hover:bg-red-100 hover:text-red-600">
+                                                <TrashIcon />
+                                            </button>
+                                        </div>
                                     </div>
-                                    {job.category === 'work' && (
-                                        <>
-                                            <div className="pt-1">
-                                                <p className="text-sm text-gray-500">Pdt. Kotor</p>
-                                                <p className="font-semibold text-green-600">{formatCurrency(job.grossIncome)}</p>
-                                            </div>
-                                            <div className="pt-1">
-                                                <p className="text-sm text-gray-500">Pengeluaran</p>
-                                                <p className="font-semibold text-red-600">{formatCurrency(job.expenses)}</p>
-                                            </div>
-                                        </>
-                                    )}
-                                    <div className="flex justify-end gap-2 pt-1 self-start">
-                                        <button onClick={() => { setEditingJob(job); setIsJobModalOpen(true); }} className="p-2 text-gray-400 rounded-full hover:bg-blue-100 hover:text-blue-600">
-                                            <PencilIcon />
-                                        </button>
-                                        <button onClick={() => onDeleteJob(business.id, job.id)} className="p-2 text-gray-400 rounded-full hover:bg-red-100 hover:text-red-600">
-                                            <TrashIcon />
-                                        </button>
-                                    </div>
+                                )
+                            }) : (
+                                <div className="py-12 text-center text-gray-500 bg-white rounded-lg shadow">
+                                    <p>{selectedDate ? 'Tidak ada pekerjaan pada tanggal ini.' : 'Belum ada pekerjaan atau tugas yang ditambahkan.'}</p>
                                 </div>
-                            )
-                        }) : (
-                            <div className="py-12 text-center text-gray-500 bg-white rounded-lg shadow">
-                                <p>Belum ada pekerjaan atau tugas yang ditambahkan.</p>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                 </div>
             )}
@@ -680,7 +826,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
               </div>
               <div>
                 <label htmlFor="job-deadline" className="block text-sm font-medium text-gray-700">Tenggat Waktu (Opsional)</label>
-                <input id="job-deadline" type="datetime-local" value={jobFormData.deadline} onChange={e => setJobFormData({...jobFormData, deadline: e.target.value})} className="mt-1 w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+                <input id="job-deadline" type="time" value={jobFormData.deadline} onChange={e => setJobFormData({...jobFormData, deadline: e.target.value})} className="mt-1 w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
               </div>
               
               {jobFormData.category === 'work' && (
