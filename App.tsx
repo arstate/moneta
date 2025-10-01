@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Business, Job, OtherIncome, Expense } from './types';
 import InitialSetup from './components/InitialSetup';
@@ -66,7 +65,14 @@ const App: React.FC = () => {
         const businessesArray = firebaseObjectToArray(data);
         const compatibleBusinesses = businessesArray.map(b => ({
             ...b,
-            jobs: (b.jobs || []).map(j => ({ ...j, completed: j.completed || false, description: j.description || '', notes: j.notes || '' })),
+            jobs: (b.jobs || []).map(j => ({ 
+                ...j, 
+                category: j.category || 'work',
+                completed: j.completed || false, 
+                description: j.description || '', 
+                notes: j.notes || '',
+                deadline: j.deadline || undefined
+            })),
             otherIncomes: b.otherIncomes || [],
             otherExpenses: b.otherExpenses || [],
         }));

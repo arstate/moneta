@@ -1,7 +1,72 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import type { Business, Job, OtherIncome, Expense } from '../types';
+import type { Business, Job, OtherIncome, Expense, JobCategory } from '../types';
 import IncomeChart from './IncomeChart';
-import { ChevronLeftIcon, PlusIcon, TrashIcon, CalendarDaysIcon, ChartBarIcon, PencilIcon, Bars3Icon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, PresentationChartLineIcon } from './Icons';
+import { ChevronLeftIcon, PlusIcon, TrashIcon, CalendarDaysIcon, ChartBarIcon, PencilIcon, Bars3Icon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, PresentationChartLineIcon, HomeIcon, ChevronRightIcon } from './Icons';
+
+interface DeadlineCountdownProps {
+  deadline: string;
+}
+
+const DeadlineCountdown: React.FC<DeadlineCountdownProps> = ({ deadline }) => {
+  const calculateTimeLeft = () => {
+    const difference = +new Date(deadline) - +new Date();
+    let timeLeft: { days?: number, hours?: number, minutes?: number, seconds?: number } = {};
+
+    if (difference > 0) {
+      timeLeft = {
+        days: Math.floor(difference / (1000 * 60 * 60 * 24)),
+        hours: Math.floor((difference / (1000 * 60 * 60)) % 24),
+        minutes: Math.floor((difference / 1000 / 60) % 60),
+        seconds: Math.floor((difference / 1000) % 60),
+      };
+    }
+    return { difference, timeLeft };
+  };
+
+  const [timeLeft, setTimeLeft] = useState(calculateTimeLeft().timeLeft);
+  const [isOverdue, setIsOverdue] = useState(calculateTimeLeft().difference <= 0);
+  
+  useEffect(() => {
+    if (isOverdue) return;
+
+    const timer = setInterval(() => {
+      const { difference, timeLeft: newTimeLeft } = calculateTimeLeft();
+      if (difference > 0) {
+        setTimeLeft(newTimeLeft);
+      } else {
+        setIsOverdue(true);
+        clearInterval(timer);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [deadline, isOverdue]);
+
+  if (isOverdue) {
+    return <span className="text-sm font-medium text-red-600 animate-pulse">Tenggat waktu terlewat</span>;
+  }
+  
+  const timerComponents: string[] = [];
+  
+  if (timeLeft.days && timeLeft.days > 0) timerComponents.push(`${timeLeft.days}hri`);
+  if (timeLeft.hours && timeLeft.hours > 0) timerComponents.push(`${timeLeft.hours}jm`);
+  if (timeLeft.minutes && timeLeft.minutes > 0) timerComponents.push(`${timeLeft.minutes}mnt`);
+  if(timeLeft.days === 0 && timeLeft.hours === 0) {
+      if (timeLeft.seconds !== undefined) timerComponents.push(`${timeLeft.seconds}dtk`);
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+        <svg className="w-4 h-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
+        <span className="text-xs font-medium text-gray-600">
+            {timerComponents.join(' ')}
+        </span>
+    </div>
+  );
+};
+
 
 interface BusinessDetailProps {
   business: Business;
@@ -34,12 +99,13 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   const [endMonth, setEndMonth] = useState<string>('12');
   const [filterYear, setFilterYear] = useState<string>('all');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
 
   // State for Job Modal
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<Job | null>(null);
-  const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', grossIncome: '', expenses: '' });
+  const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory });
 
   // State for Other Income Modal
   const [isOtherIncomeModalOpen, setIsOtherIncomeModalOpen] = useState(false);
@@ -59,11 +125,13 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
           description: editingJob.description || '',
           notes: editingJob.notes || '',
           date: editingJob.date,
+          deadline: editingJob.deadline || '',
           grossIncome: String(editingJob.grossIncome),
           expenses: String(editingJob.expenses),
+          category: editingJob.category || 'work',
         });
       } else {
-        setJobFormData({ title: '', description: '', notes: '', date: '', grossIncome: '', expenses: '' });
+        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' });
       }
     }
   }, [editingJob, isJobModalOpen]);
@@ -117,8 +185,10 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       description: jobFormData.description,
       notes: jobFormData.notes,
       date: jobFormData.date,
-      grossIncome: parseFloat(jobFormData.grossIncome) || 0,
-      expenses: parseFloat(jobFormData.expenses) || 0,
+      deadline: jobFormData.deadline || undefined,
+      category: jobFormData.category,
+      grossIncome: jobFormData.category === 'work' ? parseFloat(jobFormData.grossIncome) || 0 : 0,
+      expenses: jobFormData.category === 'work' ? parseFloat(jobFormData.expenses) || 0 : 0,
     };
     if (editingJob) {
       onEditJob(business.id, { ...jobData, id: editingJob.id, completed: editingJob.completed });
@@ -271,14 +341,15 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   };
 
 
-  const NavLink: React.FC<{ isActive: boolean, onClick: () => void, children: React.ReactNode }> = ({ isActive, onClick, children }) => (
+  const NavLink: React.FC<{ isActive: boolean, onClick: () => void, children: React.ReactNode, title: string }> = ({ isActive, onClick, children, title }) => (
     <li>
       <button 
         onClick={() => {
           onClick();
           setIsSidebarOpen(false);
         }}
-        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-primary-700 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'}`}
+        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-primary-700 text-white' : 'text-gray-300 hover:bg-gray-700 hover:text-white'} ${isSidebarCollapsed ? 'justify-center' : ''}`}
+        title={title}
       >
         {children}
       </button>
@@ -287,30 +358,33 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   
   const SidebarContent = () => (
     <>
-      <div className="px-2 pt-2 pb-8 flex justify-between items-center">
-        <h2 className="text-2xl font-bold tracking-tight text-white truncate">{business.name}</h2>
-        <button onClick={() => setIsSidebarOpen(false)} className="md:hidden p-1 text-gray-400 hover:text-white">
-            <XMarkIcon />
-        </button>
-      </div>
-      <nav className="flex-grow">
-          <ul className="space-y-2">
-              <NavLink isActive={view === 'schedule'} onClick={() => setView('schedule')}>
-                  <CalendarDaysIcon />
-                  <span>Jadwal</span>
-              </NavLink>
-              <NavLink isActive={view === 'report'} onClick={() => setView('report')}>
-                  <ChartBarIcon />
-                  <span>Laporan Pendapatan</span>
-              </NavLink>
-          </ul>
-      </nav>
-      <div className="mt-auto">
-            <button onClick={onBack} className="flex items-center w-full gap-2 px-3 py-2 font-semibold text-gray-300 transition-colors rounded-lg hover:bg-gray-700 hover:text-white">
-              <ChevronLeftIcon />
-              Kembali ke Dasbor
-          </button>
-      </div>
+        <div className={`px-4 pt-4 pb-4 flex items-center gap-3 border-b border-gray-700 ${isSidebarCollapsed ? 'justify-center' : ''}`}>
+            <button 
+                onClick={() => { onBack(); setIsSidebarOpen(false); }} 
+                className="p-2 rounded-lg text-gray-300 hover:bg-gray-700 hover:text-white flex-shrink-0"
+                aria-label="Kembali ke Dasbor"
+                title="Kembali ke Dasbor"
+            >
+                <HomeIcon />
+            </button>
+            <h2 className={`text-xl font-bold tracking-tight text-white truncate transition-all duration-200 ease-in-out ${isSidebarCollapsed ? 'opacity-0 w-0 hidden' : 'opacity-100 delay-100'}`}>{business.name}</h2>
+            <button onClick={() => setIsSidebarOpen(false)} className={`md:hidden p-1 text-gray-400 hover:text-white ml-auto ${isSidebarCollapsed ? 'hidden' : ''}`}>
+                <XMarkIcon />
+            </button>
+        </div>
+
+        <nav className="flex-grow mt-4 px-2">
+            <ul className="space-y-2">
+                <NavLink isActive={view === 'schedule'} onClick={() => setView('schedule')} title="Jadwal">
+                    <CalendarDaysIcon />
+                    <span className={`whitespace-nowrap transition-opacity ${isSidebarCollapsed ? 'hidden' : 'opacity-100 delay-100'}`}>Jadwal</span>
+                </NavLink>
+                <NavLink isActive={view === 'report'} onClick={() => setView('report')} title="Laporan Pendapatan">
+                    <ChartBarIcon />
+                    <span className={`whitespace-nowrap transition-opacity ${isSidebarCollapsed ? 'hidden' : 'opacity-100 delay-100'}`}>Laporan Pendapatan</span>
+                </NavLink>
+            </ul>
+        </nav>
     </>
   );
   
@@ -324,11 +398,24 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
           ></div>
       )}
 
-      <aside className={`fixed inset-y-0 left-0 z-30 flex flex-col w-64 p-4 text-white bg-gray-800 transition-transform duration-300 ease-in-out transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
-          <SidebarContent />
+      <aside className={`fixed inset-y-0 left-0 z-30 bg-gray-800 text-white transition-all duration-300 ease-in-out transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 ${isSidebarCollapsed ? 'w-20' : 'w-64'}`}>
+        <div className="relative flex flex-col h-full">
+            <SidebarContent />
+
+            {/* Desktop Sidebar Toggle */}
+            <div className="absolute top-4 -right-3.5 hidden md:block">
+                <button
+                    onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                    className="p-1 bg-gray-700 text-white rounded-full border-2 border-gray-800 hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    aria-label={isSidebarCollapsed ? "Buka sidebar" : "Tutup sidebar"}
+                >
+                    {isSidebarCollapsed ? <ChevronRightIcon className="w-4 h-4" /> : <ChevronLeftIcon className="w-4 h-4" />}
+                </button>
+            </div>
+        </div>
       </aside>
 
-      <main className="transition-all duration-300 ease-in-out md:ml-64">
+      <main className={`transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'md:ml-20' : 'md:ml-64'}`}>
         <div className="p-4 sm:p-6 lg:p-8">
             <header className="md:hidden flex items-center mb-4">
                 <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2 text-gray-600">
@@ -341,7 +428,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                 <div>
                     <div className="flex justify-end mb-4">
                         <button onClick={() => { setEditingJob(null); setIsJobModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 font-semibold text-white rounded-lg shadow-sm bg-primary-600 hover:bg-primary-700">
-                            <PlusIcon /> <span className="hidden sm:inline">Tambah Pekerjaan</span><span className="sm:hidden">Baru</span>
+                            <PlusIcon /> <span className="hidden sm:inline">Tambah Pekerjaan/Tugas</span><span className="sm:hidden">Baru</span>
                         </button>
                     </div>
                     <div className="space-y-4">
@@ -351,7 +438,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
 
                              return (
                                 <div key={job.id} className="grid grid-cols-1 md:grid-cols-6 items-start gap-4 p-4 bg-white rounded-lg shadow">
-                                    <div className="md:col-span-3 flex items-start gap-3">
+                                    <div className={`flex items-start gap-3 ${job.category === 'work' ? 'md:col-span-3' : 'md:col-span-5'}`}>
                                         <input 
                                             type="checkbox"
                                             checked={job.completed}
@@ -359,8 +446,23 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                             className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 mt-1 flex-shrink-0"
                                         />
                                         <div className="flex-grow">
-                                            <p className={`font-bold text-gray-800 ${job.completed ? 'line-through text-gray-400' : ''}`}>{job.title}</p>
+                                            <p className={`font-bold text-gray-800 ${job.completed ? 'line-through text-gray-400' : ''}`}>
+                                                {job.category === 'task' && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full mr-2">TUGAS</span>}
+                                                {job.title}
+                                            </p>
                                             
+                                            {job.deadline && !job.completed && (
+                                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+                                                    <span className="flex items-center bg-orange-100 text-orange-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+                                                        <svg className="w-3 h-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                        </svg>
+                                                        {new Date(job.deadline).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                    <DeadlineCountdown deadline={job.deadline} />
+                                                </div>
+                                            )}
+
                                             <div className={`relative overflow-hidden transition-all duration-300 ease-in-out ${isExpandable && !isExpanded ? 'max-h-20' : 'max-h-[1000px]'}`}>
                                                 {job.description && <p className={`text-sm text-gray-600 mt-1 whitespace-pre-wrap ${job.completed ? 'line-through text-gray-400' : ''}`}>{job.description}</p>}
                                                 {job.notes && (
@@ -386,14 +488,18 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="pt-1">
-                                        <p className="text-sm text-gray-500">Pdt. Kotor</p>
-                                        <p className="font-semibold text-green-600">{formatCurrency(job.grossIncome)}</p>
-                                    </div>
-                                    <div className="pt-1">
-                                        <p className="text-sm text-gray-500">Pengeluaran</p>
-                                        <p className="font-semibold text-red-600">{formatCurrency(job.expenses)}</p>
-                                    </div>
+                                    {job.category === 'work' && (
+                                        <>
+                                            <div className="pt-1">
+                                                <p className="text-sm text-gray-500">Pdt. Kotor</p>
+                                                <p className="font-semibold text-green-600">{formatCurrency(job.grossIncome)}</p>
+                                            </div>
+                                            <div className="pt-1">
+                                                <p className="text-sm text-gray-500">Pengeluaran</p>
+                                                <p className="font-semibold text-red-600">{formatCurrency(job.expenses)}</p>
+                                            </div>
+                                        </>
+                                    )}
                                     <div className="flex justify-end gap-2 pt-1 self-start">
                                         <button onClick={() => { setEditingJob(job); setIsJobModalOpen(true); }} className="p-2 text-gray-400 rounded-full hover:bg-blue-100 hover:text-blue-600">
                                             <PencilIcon />
@@ -406,7 +512,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                             )
                         }) : (
                             <div className="py-12 text-center text-gray-500 bg-white rounded-lg shadow">
-                                <p>Belum ada pekerjaan yang ditambahkan.</p>
+                                <p>Belum ada pekerjaan atau tugas yang ditambahkan.</p>
                             </div>
                         )}
                     </div>
@@ -549,15 +655,41 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
 
       {isJobModalOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="w-full max-w-lg p-6 bg-white rounded-lg shadow-xl">
-            <h2 className="text-xl font-bold text-gray-900">{editingJob ? 'Edit Pekerjaan' : 'Tambah Pekerjaan Baru'}</h2>
+          <div className="w-full max-w-lg p-6 bg-white rounded-lg shadow-xl overflow-y-auto max-h-screen">
+            <h2 className="text-xl font-bold text-gray-900">{editingJob ? 'Edit Pekerjaan/Tugas' : 'Tambah Pekerjaan/Tugas Baru'}</h2>
             <form onSubmit={handleJobSubmit} className="mt-4 space-y-4">
-              <input type="text" placeholder="Nama Pekerjaan" value={jobFormData.title} onChange={e => setJobFormData({...jobFormData, title: e.target.value})} required className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
-              <textarea placeholder="Deskripsi Pekerjaan (opsional)" value={jobFormData.description} onChange={e => setJobFormData({...jobFormData, description: e.target.value})} className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" rows={3}></textarea>
+               <div>
+                 <label htmlFor="job-category" className="block text-sm font-medium text-gray-700">Kategori</label>
+                 <select
+                     id="job-category"
+                     value={jobFormData.category}
+                     onChange={e => setJobFormData({...jobFormData, category: e.target.value as JobCategory})}
+                     className="mt-1 block w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                 >
+                     <option value="work">Pekerjaan (Dengan Pendapatan)</option>
+                     <option value="task">Tugas (Tanpa Pendapatan)</option>
+                 </select>
+               </div>
+
+              <input type="text" placeholder={jobFormData.category === 'work' ? 'Nama Pekerjaan' : 'Nama Tugas'} value={jobFormData.title} onChange={e => setJobFormData({...jobFormData, title: e.target.value})} required className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+              <textarea placeholder="Deskripsi (opsional)" value={jobFormData.description} onChange={e => setJobFormData({...jobFormData, description: e.target.value})} className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" rows={3}></textarea>
               <textarea placeholder="Catatan Tambahan (opsional)" value={jobFormData.notes} onChange={e => setJobFormData({...jobFormData, notes: e.target.value})} className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" rows={2}></textarea>
-              <input type="date" value={jobFormData.date} onChange={e => setJobFormData({...jobFormData, date: e.target.value})} required className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
-              <input type="number" placeholder="Pendapatan Kotor (Rp)" value={jobFormData.grossIncome} onChange={e => setJobFormData({...jobFormData, grossIncome: e.target.value})} required className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
-              <input type="number" placeholder="Pengeluaran (Rp)" value={jobFormData.expenses} onChange={e => setJobFormData({...jobFormData, expenses: e.target.value})} required className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+              <div>
+                <label htmlFor="job-date" className="block text-sm font-medium text-gray-700">Tanggal</label>
+                <input id="job-date" type="date" value={jobFormData.date} onChange={e => setJobFormData({...jobFormData, date: e.target.value})} required className="mt-1 w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+              <div>
+                <label htmlFor="job-deadline" className="block text-sm font-medium text-gray-700">Tenggat Waktu (Opsional)</label>
+                <input id="job-deadline" type="datetime-local" value={jobFormData.deadline} onChange={e => setJobFormData({...jobFormData, deadline: e.target.value})} className="mt-1 w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+              </div>
+              
+              {jobFormData.category === 'work' && (
+                <>
+                    <input type="number" placeholder="Pendapatan Kotor (Rp)" value={jobFormData.grossIncome} onChange={e => setJobFormData({...jobFormData, grossIncome: e.target.value})} required className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+                    <input type="number" placeholder="Pengeluaran (Rp)" value={jobFormData.expenses} onChange={e => setJobFormData({...jobFormData, expenses: e.target.value})} required className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+                </>
+              )}
+
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setIsJobModalOpen(false)} className="px-4 py-2 font-semibold text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300">Batal</button>
                 <button type="submit" className="px-4 py-2 font-semibold text-white rounded-lg bg-primary-600 hover:bg-primary-700">Simpan</button>

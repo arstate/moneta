@@ -1,9 +1,13 @@
+export type JobCategory = 'work' | 'task';
+
 export interface Job {
   id: string;
-  title: string;
+  title:string;
+  category: JobCategory;
   description?: string;
   notes?: string;
   date: string; // YYYY-MM-DD
+  deadline?: string; // YYYY-MM-DDTHH:mm
   grossIncome: number;
   expenses: number;
   completed: boolean;
