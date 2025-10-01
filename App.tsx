@@ -135,20 +135,31 @@ const App: React.FC = () => {
   const handleBackToDashboard = useCallback(() => { setSelectedBusinessId(null); }, []);
 
   const handleAddJob = useCallback((businessId: string, job: Omit<Job, 'id' | 'completed'>) => {
-    const newJobData = { ...job, completed: false };
+    let jobToSave: Omit<Job, 'id'>;
+
     if (job.isRecurring) {
-        newJobData.completions = {};
+        // FIX: Added `completed: false` to satisfy the `Job` type which requires this property.
+        // For recurring jobs, completion is tracked via 'completions', but the 'completed'
+        // property is still needed. The `delete` statement was incorrect and has been removed.
+        jobToSave = { ...job, completed: false, completions: {} };
+    } else {
+        jobToSave = { ...job, completed: false };
+        delete (jobToSave as Partial<Job>).completions;
     }
 
     if (isGuestMode) {
-      const newJobWithId = { ...newJobData, id: `guest_job_${Date.now()}`};
-      setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, jobs: [...b.jobs, newJobWithId] } : b));
-      return;
+        const newJobWithId = { ...jobToSave, id: `guest_job_${Date.now()}` } as Job;
+        setBusinesses(prev => prev.map(b => 
+            b.id === businessId 
+                ? { ...b, jobs: [...b.jobs, newJobWithId] } 
+                : b
+        ));
+        return;
     }
     if (!currentUser) return;
     const jobsRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs`);
     const newJobRef = jobsRef.push();
-    newJobRef.set({ ...newJobData, id: newJobRef.key });
+    newJobRef.set({ ...jobToSave, id: newJobRef.key });
   }, [currentUser, isGuestMode]);
 
   const handleEditJob = useCallback((businessId: string, updatedJob: Job) => {
@@ -284,7 +295,7 @@ const App: React.FC = () => {
     }
     if(!currentUser) return;
     const { id, ...expenseData } = updatedExpense;
-    const expenseRef = db.ref(`users/${currentUser.uid}/businesses/${id}`);
+    const expenseRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/otherExpenses/${id}`);
     expenseRef.update(expenseData);
   }, [currentUser, isGuestMode]);
 

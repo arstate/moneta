@@ -119,7 +119,7 @@ const DeadlineCountdown: React.FC<DeadlineCountdownProps> = ({ deadline }) => {
 interface BusinessDetailProps {
   business: Business;
   onBack: () => void;
-  onAddJob: (businessId: string, job: Omit<Job, 'id' | 'completed'>) => void;
+  onAddJob: (businessId: string, job: Omit<Job, 'id' | 'completed' | 'completions'>) => void;
   onEditJob: (businessId: string, job: Job) => void;
   onDeleteJob: (businessId: string, jobId: string) => void;
   onToggleJobStatus: (businessId: string, jobId: string, occurrenceDate: string) => void;
@@ -281,7 +281,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
             });
         }
     } else {
-      onAddJob(business.id, { ...jobData, completions: jobData.isRecurring ? {} : undefined });
+      onAddJob(business.id, jobData);
     }
     setIsJobModalOpen(false);
     setEditingOccurrence(null);
