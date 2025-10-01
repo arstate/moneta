@@ -31,6 +31,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<firebase.User | null>(null);
   const [isGuestMode, setIsGuestMode] = useState(false);
+  const [isCreatingFirstBusiness, setIsCreatingFirstBusiness] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -87,6 +88,9 @@ const App: React.FC = () => {
   };
 
   const handleAddBusiness = useCallback((name: string) => {
+    if (businesses.length === 0) {
+        setIsCreatingFirstBusiness(true);
+    }
     if (isGuestMode) {
       const newBusiness = { id: `guest_${Date.now()}`, name, jobs: [], otherIncomes: [], otherExpenses: [] };
       setBusinesses(prev => [...prev, newBusiness]);
@@ -96,7 +100,7 @@ const App: React.FC = () => {
     const businessesRef = db.ref(`users/${currentUser.uid}/businesses`);
     const newBusinessRef = businessesRef.push();
     newBusinessRef.set({ id: newBusinessRef.key, name, jobs: {}, otherIncomes: {}, otherExpenses: {} });
-  }, [currentUser, isGuestMode]);
+  }, [currentUser, isGuestMode, businesses]);
 
   const handleDeleteBusiness = useCallback((id: string) => {
     if (isGuestMode) {
@@ -274,6 +278,9 @@ const App: React.FC = () => {
   }
 
   if (businesses.length === 0) {
+    if (isCreatingFirstBusiness) {
+        return <div className="flex items-center justify-center min-h-screen text-lg font-semibold text-primary-700">Membuat Usaha Anda...</div>;
+    }
     return <InitialSetup onCreateBusiness={handleAddBusiness} />;
   }
 
