@@ -229,12 +229,12 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
           remindForDeadline: editingOccurrence.remindForDeadline || false,
           labelId: editingOccurrence.labelId,
         });
-        setApplyToAll(false); // Default to not applying to all for safety
+        setApplyToAll(false);
       } else {
-        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false, remindForDeadline: false, labelId: undefined });
+        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false, remindForDeadline: false, labelId: filterLabelId !== 'all' ? filterLabelId : undefined });
       }
     }
-  }, [editingOccurrence, isJobModalOpen]);
+  }, [editingOccurrence, isJobModalOpen, filterLabelId]);
 
   useEffect(() => {
     if (isOtherIncomeModalOpen) {
@@ -354,6 +354,8 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
         }
     } else {
       onAddJob(business.id, jobData);
+      setFilterLabelId('all');
+      setFilterMonth('all');
     }
     setIsJobModalOpen(false);
     setEditingOccurrence(null);
