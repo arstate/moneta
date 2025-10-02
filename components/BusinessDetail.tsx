@@ -170,6 +170,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   const [expandedJobIds, setExpandedJobIds] = useState<Set<string>>(new Set());
   const [currentDate, setCurrentDate] = useState(new Date()); // For calendar month/year
   const [selectedDate, setSelectedDate] = useState<string | null>(null); // For filtering jobs
+  const [currentTime, setCurrentTime] = useState(new Date());
 
 
   // State for Job Modal
@@ -196,6 +197,11 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   // State for Job Filters
   const [filterLabelId, setFilterLabelId] = useState<string>('all');
   const [filterMonth, setFilterMonth] = useState<string>('all');
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (filterMonth !== 'all') {
@@ -635,6 +641,18 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
     setJobForLabeling(null);
   };
   
+  const formattedTime = currentTime.toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  const formattedDate = currentTime.toLocaleDateString('id-ID', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+  });
+
   const SidebarContent = () => (
     <>
         <div className={`px-4 pt-4 pb-4 flex items-center gap-3 border-b border-gray-700 ${isSidebarCollapsed ? 'justify-center' : ''}`}>
@@ -703,14 +721,19 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
 
             {view === 'schedule' && (
                 <div className="space-y-6">
+                    <div className="bg-orange-500 text-white font-semibold p-3 rounded-lg shadow-md max-w-sm">
+                        <p className="text-md text-center">{formattedDate}</p>
+                        <p className="text-3xl text-center tracking-wider">{formattedTime}</p>
+                    </div>
+
                     <div className="flex justify-end">
                         <button onClick={() => { setEditingOccurrence(null); setIsJobModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 font-semibold text-white rounded-lg shadow-sm bg-primary-600 hover:bg-primary-700">
                             <PlusIcon /> <span className="hidden sm:inline">Tambah Pekerjaan/Tugas</span><span className="sm:hidden">Baru</span>
                         </button>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-                        <div className="p-4 bg-white rounded-lg shadow lg:col-span-3">
+                    <div className="flex flex-col lg:flex-row gap-6">
+                        <div className="p-4 bg-white rounded-lg shadow w-full lg:max-w-md xl:max-w-lg">
                             <div className="flex items-center justify-between mb-4">
                                 <button onClick={handlePrevMonth} className="p-2 text-primary-600 rounded-full hover:bg-primary-100">
                                 <ChevronLeftIcon className="w-5 h-5 text-primary-600" />
@@ -756,7 +779,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                 })}
                             </div>
                         </div>
-                        <div className="p-4 bg-white rounded-lg shadow lg:col-span-2 h-full">
+                        <div className="p-4 bg-white rounded-lg shadow w-full lg:flex-1 h-full">
                             <h3 className="text-lg font-semibold text-gray-800 mb-4">Tenggat Waktu Terdekat</h3>
                             {upcomingDeadlines.length > 0 ? (
                                 <ul className="space-y-3">
