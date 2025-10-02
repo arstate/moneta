@@ -1,5 +1,5 @@
 {
-  "name": "Copy of moneta",
+  "name": "moneta",
   "description": "A web application to manage job schedules and track daily, monthly, and annual business income, including gross and net revenue. Users can manage multiple businesses simultaneously.",
   "requestFramePermissions": []
 }

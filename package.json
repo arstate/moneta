@@ -1,5 +1,5 @@
 {
-  "name": "copy-of-moneta",
+  "name": "moneta",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,8 +12,7 @@
     "recharts": "^3.2.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "firebase": "^12.3.0",
-    "resend": "^6.1.2"
+    "firebase": "^12.3.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
