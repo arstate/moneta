@@ -214,29 +214,6 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   }, [filterMonth]);
 
   useEffect(() => {
-    if (isJobModalOpen) {
-      if (editingOccurrence) {
-        setJobFormData({
-          title: editingOccurrence.title,
-          description: editingOccurrence.description || '',
-          notes: editingOccurrence.notes || '',
-          date: editingOccurrence.isRecurring ? editingOccurrence.occurrenceDate : editingOccurrence.date,
-          deadline: editingOccurrence.deadline ? editingOccurrence.deadline.split('T')[1]?.substring(0, 5) : '',
-          grossIncome: String(editingOccurrence.grossIncome),
-          expenses: String(editingOccurrence.expenses),
-          category: editingOccurrence.category || 'work',
-          isRecurring: editingOccurrence.isRecurring || false,
-          remindForDeadline: editingOccurrence.remindForDeadline || false,
-          labelId: editingOccurrence.labelId,
-        });
-        setApplyToAll(false);
-      } else {
-        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false, remindForDeadline: false, labelId: filterLabelId !== 'all' ? filterLabelId : undefined });
-      }
-    }
-  }, [editingOccurrence, isJobModalOpen, filterLabelId]);
-
-  useEffect(() => {
     if (isOtherIncomeModalOpen) {
       if (editingOtherIncome) {
         setOtherIncomeFormData({
@@ -318,6 +295,43 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   }, [business.otherExpenses]);
 
 
+  const handleOpenAddJobModal = () => {
+    setEditingOccurrence(null);
+    setJobFormData({ 
+      title: '', 
+      description: '', 
+      notes: '', 
+      date: '', 
+      deadline: '', 
+      grossIncome: '', 
+      expenses: '', 
+      category: 'work', 
+      isRecurring: false, 
+      remindForDeadline: false, 
+      labelId: filterLabelId !== 'all' ? filterLabelId : undefined 
+    });
+    setIsJobModalOpen(true);
+  };
+
+  const handleOpenEditJobModal = (job: JobOccurrence) => {
+    setEditingOccurrence(job);
+    setJobFormData({
+      title: job.title,
+      description: job.description || '',
+      notes: job.notes || '',
+      date: job.isRecurring ? job.occurrenceDate : job.date,
+      deadline: job.deadline ? job.deadline.split('T')[1]?.substring(0, 5) : '',
+      grossIncome: String(job.grossIncome),
+      expenses: String(job.expenses),
+      category: job.category || 'work',
+      isRecurring: job.isRecurring || false,
+      remindForDeadline: job.remindForDeadline || false,
+      labelId: job.labelId,
+    });
+    setApplyToAll(false);
+    setIsJobModalOpen(true);
+  };
+
   const handleJobSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const jobData = {
@@ -354,8 +368,10 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
         }
     } else {
       onAddJob(business.id, jobData);
+      // Reset all filters to ensure the new job is visible
       setFilterLabelId('all');
       setFilterMonth('all');
+      setSelectedDate(null);
     }
     setIsJobModalOpen(false);
     setEditingOccurrence(null);
@@ -729,7 +745,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                     </div>
 
                     <div className="flex justify-end">
-                        <button onClick={() => { setEditingOccurrence(null); setIsJobModalOpen(true); }} className="flex items-center gap-2 px-4 py-2 font-semibold text-white rounded-lg shadow-sm bg-primary-600 hover:bg-primary-700">
+                        <button onClick={handleOpenAddJobModal} className="flex items-center gap-2 px-4 py-2 font-semibold text-white rounded-lg shadow-sm bg-primary-600 hover:bg-primary-700">
                             <PlusIcon /> <span className="hidden sm:inline">Tambah Pekerjaan/Tugas</span><span className="sm:hidden">Baru</span>
                         </button>
                     </div>
@@ -941,7 +957,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                             </>
                                         )}
                                         <div className="flex justify-end gap-2 pt-1 self-start">
-                                            <button onClick={() => { setEditingOccurrence(job); setIsJobModalOpen(true); }} className="p-2 text-gray-400 rounded-full hover:bg-blue-100 hover:text-blue-600">
+                                            <button onClick={() => handleOpenEditJobModal(job)} className="p-2 text-gray-400 rounded-full hover:bg-blue-100 hover:text-blue-600">
                                                 <PencilIcon />
                                             </button>
                                             <button onClick={() => onDeleteJob(business.id, job.id)} className="p-2 text-gray-400 rounded-full hover:bg-red-100 hover:text-red-600">
