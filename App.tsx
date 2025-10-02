@@ -150,8 +150,13 @@ const App: React.FC = () => {
         delete (jobToSave as Partial<Job>).completions;
     }
 
+    const jobDataForDb = { ...jobToSave };
+    if (jobDataForDb.labelId === undefined) {
+        (jobDataForDb as any).labelId = null;
+    }
+
     if (isGuestMode) {
-        const newJobWithId = { ...jobToSave, id: `guest_job_${Date.now()}` } as Job;
+        const newJobWithId = { ...jobDataForDb, id: `guest_job_${Date.now()}` } as Job;
         setBusinesses(prev => prev.map(b => 
             b.id === businessId 
                 ? { ...b, jobs: [...b.jobs, newJobWithId] } 
@@ -162,7 +167,7 @@ const App: React.FC = () => {
     if (!currentUser) return;
     const jobsRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs`);
     const newJobRef = jobsRef.push();
-    newJobRef.set({ ...jobToSave, id: newJobRef.key });
+    newJobRef.set({ ...jobDataForDb, id: newJobRef.key });
   }, [currentUser, isGuestMode]);
 
   const handleEditJob = useCallback((businessId: string, updatedJob: Job) => {
@@ -173,8 +178,6 @@ const App: React.FC = () => {
     if (!currentUser) return;
     const { id, ...jobData } = updatedJob;
 
-    // Create a new object for the update operation.
-    // Firebase's `update` treats `undefined` as "do not change", so we must convert it to `null` to remove the field.
     const updateData: { [key: string]: any } = { ...jobData };
     if (updateData.labelId === undefined) {
       updateData.labelId = null;
