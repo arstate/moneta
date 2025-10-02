@@ -197,6 +197,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   // State for Job Filters
   const [filterLabelId, setFilterLabelId] = useState<string>('all');
   const [filterMonth, setFilterMonth] = useState<string>('all');
+  const [filterCompletionStatus, setFilterCompletionStatus] = useState<'all' | 'completed' | 'not-completed'>('not-completed');
   
   const hasGCalAccess = !!sessionStorage.getItem('gcal_access_token');
 
@@ -284,9 +285,15 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
         
         const labelMatch = filterLabelId === 'all' ? true : job.labelId === filterLabelId;
         
-        return monthMatch && labelMatch;
+        const completionMatch = filterCompletionStatus === 'all'
+            ? true
+            : filterCompletionStatus === 'completed'
+            ? job.isComplete
+            : !job.isComplete;
+            
+        return monthMatch && labelMatch && completionMatch;
     });
-  }, [jobOccurrences, filterMonth, filterLabelId]);
+  }, [jobOccurrences, filterMonth, filterLabelId, filterCompletionStatus]);
 
 
   const sortedOtherIncomes = useMemo(() => {
@@ -828,6 +835,19 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                         <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4 p-4 bg-primary-600 text-white rounded-lg shadow">
                              <h2 className="text-2xl font-bold">Daftar Jadwal</h2>
                             <div className="flex flex-col sm:flex-row gap-4">
+                                <div>
+                                    <label htmlFor="completion-filter" className="sr-only">Filter Status</label>
+                                    <select 
+                                        id="completion-filter"
+                                        value={filterCompletionStatus} 
+                                        onChange={e => setFilterCompletionStatus(e.target.value as 'all' | 'completed' | 'not-completed')} 
+                                        className="w-full sm:w-auto px-3 py-2 text-sm bg-primary-700 text-white border-primary-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-white"
+                                    >
+                                        <option value="not-completed">Belum Selesai</option>
+                                        <option value="completed">Selesai</option>
+                                        <option value="all">Semua</option>
+                                    </select>
+                                </div>
                                 <div>
                                     <label htmlFor="label-filter" className="sr-only">Filter Label</label>
                                     <select 
