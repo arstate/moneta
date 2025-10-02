@@ -1,4 +1,5 @@
 
+
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Business, Job, OtherIncome, Expense, JobCategory, Label } from '../types';
 import IncomeChart from './IncomeChart';
@@ -276,30 +277,41 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
     if (selectedDate) {
         return generateJobOccurrencesForDate(business.jobs, selectedDate);
     }
-    
-    // New sorting logic for the main list view
+
+    const now = new Date();
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayYMD = formatDateToYMD(today);
 
-    const jobsWithSortDate = business.jobs.map(job => ({
-        job,
-        sortDate: getNextOccurrenceDate(job, today),
-    }));
+    const jobsWithSortInfo = business.jobs.map(job => {
+        const nextOccurrenceDate = getNextOccurrenceDate(job, today);
+        const timePart = (job.deadline && job.deadline.includes('T')) ? job.deadline.split('T')[1] : '00:00:00';
+        const sortDateTimeString = `${nextOccurrenceDate}T${timePart}`;
+        const sortTimestamp = new Date(sortDateTimeString);
+        
+        return { 
+            job, 
+            sortTimestamp: isNaN(sortTimestamp.getTime()) ? new Date('9999-12-31T23:59:59') : sortTimestamp,
+            occurrenceDate: nextOccurrenceDate
+        };
+    });
 
-    const upcomingJobs = jobsWithSortDate.filter(item => item.sortDate >= todayYMD);
-    const pastJobs = jobsWithSortDate.filter(item => item.sortDate < todayYMD);
+    const upcomingJobs = jobsWithSortInfo.filter(item => item.sortTimestamp >= now);
+    const pastJobs = jobsWithSortInfo.filter(item => item.sortTimestamp < now);
     
-    upcomingJobs.sort((a, b) => a.sortDate.localeCompare(b.sortDate));
-    pastJobs.sort((a, b) => b.sortDate.localeCompare(a.sortDate));
+    // Sort upcoming jobs from nearest to furthest
+    upcomingJobs.sort((a, b) => a.sortTimestamp.getTime() - b.sortTimestamp.getTime());
+    // Sort past jobs from most recent to oldest
+    pastJobs.sort((a, b) => b.sortTimestamp.getTime() - a.sortTimestamp.getTime());
 
-    const sortedJobs = [...upcomingJobs, ...pastJobs].map(item => item.job);
+    const sortedItems = [...upcomingJobs, ...pastJobs];
 
-    return sortedJobs.map(job => ({
-        ...job,
-        occurrenceDate: job.date,
-        isComplete: job.isRecurring ? false : job.completed, 
-        occurrenceId: job.id, 
+    return sortedItems.map(item => ({
+        ...item.job,
+        occurrenceDate: item.occurrenceDate,
+        isComplete: item.job.isRecurring 
+            ? !!(item.job.completions && item.job.completions[item.occurrenceDate])
+            : item.job.completed,
+        occurrenceId: `${item.job.id}-${item.occurrenceDate}`,
     }));
   }, [business.jobs, selectedDate]);
   
