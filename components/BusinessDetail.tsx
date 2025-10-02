@@ -301,7 +301,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       title: '', 
       description: '', 
       notes: '', 
-      date: '', 
+      date: selectedDate || '', 
       deadline: '', 
       grossIncome: '', 
       expenses: '', 
@@ -1134,7 +1134,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                 <select
                     id="job-label"
                     value={jobFormData.labelId || ''}
-                    onChange={e => setJobFormData({ ...jobFormData, labelId: e.target.value || undefined })}
+                    onChange={e => setJobFormData({ ...jobFormData, labelId: e.target.value === '' ? undefined : e.target.value })}
                     className="mt-1 block w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
                 >
                     <option value="">Tanpa Label</option>

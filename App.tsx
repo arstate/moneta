@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Business, Job, OtherIncome, Expense, Label } from './types';
 import InitialSetup from './components/InitialSetup';
@@ -171,8 +172,16 @@ const App: React.FC = () => {
     }
     if (!currentUser) return;
     const { id, ...jobData } = updatedJob;
+
+    // Create a new object for the update operation.
+    // Firebase's `update` treats `undefined` as "do not change", so we must convert it to `null` to remove the field.
+    const updateData: { [key: string]: any } = { ...jobData };
+    if (updateData.labelId === undefined) {
+      updateData.labelId = null;
+    }
+
     const jobRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs/${id}`);
-    jobRef.update(jobData);
+    jobRef.update(updateData);
   }, [currentUser, isGuestMode]);
 
   const handleDeleteJob = useCallback((businessId: string, jobId: string) => {
