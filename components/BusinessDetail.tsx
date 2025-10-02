@@ -158,7 +158,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   // State for Job Modal
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
   const [editingOccurrence, setEditingOccurrence] = useState<JobOccurrence | null>(null);
-  const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory, isRecurring: false });
+  const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory, isRecurring: false, remindForDeadline: false });
   const [applyToAll, setApplyToAll] = useState(false);
 
 
@@ -185,10 +185,11 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
           expenses: String(editingOccurrence.expenses),
           category: editingOccurrence.category || 'work',
           isRecurring: editingOccurrence.isRecurring || false,
+          remindForDeadline: editingOccurrence.remindForDeadline || false,
         });
         setApplyToAll(false); // Default to not applying to all for safety
       } else {
-        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false });
+        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false, remindForDeadline: false });
       }
     }
   }, [editingOccurrence, isJobModalOpen]);
@@ -260,6 +261,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       grossIncome: jobFormData.category === 'work' ? parseFloat(jobFormData.grossIncome) || 0 : 0,
       expenses: jobFormData.category === 'work' ? parseFloat(jobFormData.expenses) || 0 : 0,
       isRecurring: jobFormData.isRecurring,
+      remindForDeadline: !!jobFormData.deadline && jobFormData.remindForDeadline,
     };
 
     if (editingOccurrence) {
@@ -982,6 +984,19 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                 <label htmlFor="job-deadline" className="block text-sm font-medium text-gray-700">Tenggat Waktu (Opsional)</label>
                 <input id="job-deadline" type="time" value={jobFormData.deadline} onChange={e => setJobFormData({...jobFormData, deadline: e.target.value})} className="mt-1 w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
               </div>
+              
+              {jobFormData.deadline && (
+                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <input
+                        id="job-remind"
+                        type="checkbox"
+                        checked={jobFormData.remindForDeadline}
+                        onChange={e => setJobFormData({ ...jobFormData, remindForDeadline: e.target.checked })}
+                        className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <label htmlFor="job-remind" className="block text-sm font-medium text-gray-700">Ingatkan jadwal</label>
+                </div>
+              )}
 
                 <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                     <input

@@ -75,6 +75,7 @@ const App: React.FC = () => {
                 isRecurring: j.isRecurring || false,
                 completions: j.completions || {},
                 exceptions: j.exceptions || [],
+                remindForDeadline: j.remindForDeadline || false,
             })),
             otherIncomes: b.otherIncomes || [],
             otherExpenses: b.otherExpenses || [],
@@ -340,7 +341,7 @@ const App: React.FC = () => {
 
             businesses.forEach(business => {
                 business.jobs?.forEach(job => {
-                    if (!job.deadline) return;
+                    if (!job.deadline || !job.remindForDeadline) return;
 
                     const checkAndSendNotification = (occurrenceDateStr: string, deadlineStr: string, isCompleted: boolean) => {
                         if (isCompleted) return;
