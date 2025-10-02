@@ -867,7 +867,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                         <div className="space-y-4">
                             {filteredJobOccurrences.length > 0 ? filteredJobOccurrences.map(job => {
                                 const isExpanded = expandedJobIds.has(job.occurrenceId);
-                                const isExpandable = !!job.description || !!job.notes;
+                                const isExpandable = !!job.notes;
                                 const isCompleted = job.isComplete;
                                 const today = formatDateToYMD(new Date());
                                 const isFuture = job.occurrenceDate > today;
@@ -906,38 +906,37 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                                     {job.isRecurring && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full mr-2">MINGGUAN</span>}
                                                     {job.title}
                                                 </p>
+                                                {job.description && <p className={`text-sm text-gray-600 mt-1 whitespace-pre-wrap ${isCompleted ? 'line-through text-gray-400' : ''}`}>{job.description}</p>}
                                                 
-                                                {occurrenceDeadline && !isCompleted && (
-                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
-                                                        <span className="flex items-center bg-orange-100 text-orange-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-                                                            <svg className="w-3 h-3 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                            </svg>
-                                                            {new Date(occurrenceDeadline).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
-                                                        <DeadlineCountdown deadline={occurrenceDeadline} />
-                                                    </div>
-                                                )}
-
-                                                <div className={`relative overflow-hidden transition-all duration-300 ease-in-out ${isExpandable && !isExpanded ? 'max-h-20' : 'max-h-[1000px]'}`}>
-                                                    {job.description && <p className={`text-sm text-gray-600 mt-1 whitespace-pre-wrap ${isCompleted ? 'line-through text-gray-400' : ''}`}>{job.description}</p>}
+                                                <div className={`relative overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[1000px]' : 'max-h-0'}`}>
                                                     {job.notes && (
                                                         <div className={`mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded-md ${isCompleted ? 'opacity-60' : ''}`}>
                                                             <p className="text-xs font-semibold text-yellow-800">Catatan:</p>
                                                             <p className={`text-sm text-yellow-700 whitespace-pre-wrap ${isCompleted ? 'line-through' : ''}`}>{job.notes}</p>
                                                         </div>
                                                     )}
-                                                    {isExpandable && !isExpanded && (
-                                                        <div className="absolute bottom-0 left-0 w-full h-8 bg-gradient-to-t from-white to-transparent"></div>
-                                                    )}
                                                 </div>
 
-                                                <div className="flex justify-between items-center mt-2">
-                                                    <p className={`text-sm text-gray-500 ${isCompleted ? 'line-through text-gray-400' : ''}`}>{new Date(`${job.occurrenceDate}T00:00:00`).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                                                    
+                                                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mt-2 pt-2 border-t border-gray-100">
+                                                    <div className="space-y-1">
+                                                        {occurrenceDeadline && !isCompleted ? (
+                                                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                                <span className="flex items-center bg-orange-100 text-orange-800 text-sm font-semibold px-3 py-1 rounded-full">
+                                                                    {new Date(occurrenceDeadline).toLocaleDateString('id-ID', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                                </span>
+                                                                <DeadlineCountdown deadline={occurrenceDeadline} />
+                                                            </div>
+                                                        ) : (
+                                                            <p className={`flex items-center gap-1.5 text-sm text-gray-500 ${isCompleted ? 'line-through' : ''}`}>
+                                                                <CalendarDaysIcon className="w-4 h-4" />
+                                                                <span>{new Date(`${job.occurrenceDate}T00:00:00`).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                                                            </p>
+                                                        )}
+                                                    </div>
+
                                                     {isExpandable && (
-                                                        <button onClick={() => toggleJobExpansion(job.occurrenceId)} className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-800 font-semibold z-10">
-                                                            <span>{isExpanded ? 'Sembunyikan' : 'Lihat Detail'}</span>
+                                                        <button onClick={() => toggleJobExpansion(job.occurrenceId)} className="flex items-center gap-1 text-sm text-primary-600 hover:text-primary-800 font-semibold z-10 self-end">
+                                                            <span>{isExpanded ? 'Tutup Catatan' : 'Lihat Catatan'}</span>
                                                             {isExpanded ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
                                                         </button>
                                                     )}
@@ -1295,7 +1294,7 @@ const LabelManagerModal: React.FC<{
             <div className="w-full max-w-md p-6 bg-white rounded-lg shadow-xl">
                 <h2 className="text-xl font-bold text-gray-900 truncate">Label untuk: {job.title}</h2>
                 <div className="mt-4 space-y-2 max-h-60 overflow-y-auto pr-2">
-                    <button onClick={() => onAssignLabel(job, null)} className={`w-full text-left p-2 rounded-lg border-2 bg-gray-100 hover:bg-gray-200 ${!job.labelId ? 'border-primary-500 ring-2 ring-primary-300' : 'border-transparent'}`}>
+                    <button onClick={() => onAssignLabel(job, null)} className={`w-full text-left p-2 rounded-lg border-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold ${!job.labelId ? 'border-primary-500 ring-2 ring-primary-300' : 'border-transparent'}`}>
                         Tanpa Label
                     </button>
                     {(business.labels || []).map(label => (
