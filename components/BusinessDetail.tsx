@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Business, Job, OtherIncome, Expense, JobCategory, Label } from '../types';
 import IncomeChart from './IncomeChart';
@@ -176,7 +175,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   // State for Job Modal
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
   const [editingOccurrence, setEditingOccurrence] = useState<JobOccurrence | null>(null);
-  const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory, isRecurring: false, remindForDeadline: false, labelId: undefined as string | undefined });
+  const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory, isRecurring: false, remindForDeadline: false, notificationEmail: '', labelId: undefined as string | undefined });
   const [applyToAll, setApplyToAll] = useState(false);
 
 
@@ -227,11 +226,12 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
           category: editingOccurrence.category || 'work',
           isRecurring: editingOccurrence.isRecurring || false,
           remindForDeadline: editingOccurrence.remindForDeadline || false,
+          notificationEmail: editingOccurrence.notificationEmail || '',
           labelId: editingOccurrence.labelId,
         });
         setApplyToAll(false); // Default to not applying to all for safety
       } else {
-        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false, remindForDeadline: false, labelId: undefined });
+        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false, remindForDeadline: false, notificationEmail: '', labelId: undefined });
       }
     }
   }, [editingOccurrence, isJobModalOpen]);
@@ -331,6 +331,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       expenses: jobFormData.category === 'work' ? parseFloat(jobFormData.expenses) || 0 : 0,
       isRecurring: jobFormData.isRecurring,
       remindForDeadline: !!jobFormData.deadline && jobFormData.remindForDeadline,
+      notificationEmail: jobFormData.remindForDeadline ? jobFormData.notificationEmail : undefined,
       labelId: jobFormData.labelId,
     };
 
@@ -1146,6 +1147,20 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                         className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
                     />
                     <label htmlFor="job-remind" className="block text-sm font-medium text-gray-700">Ingatkan jadwal</label>
+                </div>
+              )}
+              
+              {jobFormData.remindForDeadline && (
+                <div>
+                  <label htmlFor="notification-email" className="block text-sm font-medium text-gray-700">Email Notifikasi</label>
+                  <input
+                    id="notification-email"
+                    type="email"
+                    placeholder="Masukkan email untuk notifikasi"
+                    value={jobFormData.notificationEmail}
+                    onChange={e => setJobFormData({...jobFormData, notificationEmail: e.target.value})}
+                    className="mt-1 w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                  />
                 </div>
               )}
 

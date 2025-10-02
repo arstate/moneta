@@ -77,6 +77,7 @@ const App: React.FC = () => {
                 completions: j.completions || {},
                 exceptions: j.exceptions || [],
                 remindForDeadline: j.remindForDeadline || false,
+                notificationEmail: j.notificationEmail || undefined,
                 labelId: j.labelId || undefined,
             })),
             otherIncomes: b.otherIncomes || [],
@@ -390,10 +391,6 @@ const App: React.FC = () => {
         if (!businesses || businesses.length === 0 || (!currentUser && !isGuestMode)) return;
 
         const checkDeadlinesAndNotify = () => {
-            if (!('Notification' in window) || Notification.permission !== 'granted') {
-                return;
-            }
-
             const now = new Date();
             const oneDay = 1000 * 60 * 60 * 24;
 
@@ -413,15 +410,31 @@ const App: React.FC = () => {
                         const daysUntilDeadline = Math.ceil((deadline.getTime() - now.getTime()) / oneDay);
 
                         if (daysUntilDeadline > 0 && daysUntilDeadline <= 3) {
-                            const notification = new Notification('Tenggat Waktu Mendekat', {
-                                body: `"${job.title}" di usaha "${business.name}" akan berakhir dalam ${daysUntilDeadline} hari.`,
-                            });
-                            
-                            notification.onclick = () => {
-                                window.focus();
-                                handleSelectBusiness(business.id);
-                            };
+                            // Browser Notification
+                            if ('Notification' in window && Notification.permission === 'granted') {
+                                const notification = new Notification('Tenggat Waktu Mendekat', {
+                                    body: `"${job.title}" di usaha "${business.name}" akan berakhir dalam ${daysUntilDeadline} hari.`,
+                                });
+                                
+                                notification.onclick = () => {
+                                    window.focus();
+                                    handleSelectBusiness(business.id);
+                                };
+                            }
 
+                            // Email Notification
+                            if (job.notificationEmail) {
+                                fetch('/api/send-email', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        to: job.notificationEmail,
+                                        subject: `Pengingat Tenggat Waktu: ${job.title}`,
+                                        html: `<p>Halo,</p><p>Ini adalah pengingat bahwa tugas/pekerjaan Anda <strong>"${job.title}"</strong> untuk usaha <strong>"${business.name}"</strong> akan berakhir dalam <strong>${daysUntilDeadline} hari</strong>.</p><p>Tenggat waktu: ${new Date(deadline).toLocaleString('id-ID')}</p><p>Terima kasih.</p>`
+                                    })
+                                }).catch(err => console.error("Failed to send email notification:", err));
+                            }
+                            
                             localStorage.setItem(notificationId, 'true');
                         }
                     };
