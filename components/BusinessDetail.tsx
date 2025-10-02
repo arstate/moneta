@@ -1,7 +1,8 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
-import type { Business, Job, OtherIncome, Expense, JobCategory } from '../types';
+import type { Business, Job, OtherIncome, Expense, JobCategory, Label } from '../types';
 import IncomeChart from './IncomeChart';
-import { ChevronLeftIcon, PlusIcon, TrashIcon, CalendarDaysIcon, ChartBarIcon, PencilIcon, Bars3Icon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, PresentationChartLineIcon, HomeIcon, ChevronRightIcon } from './Icons';
+import { ChevronLeftIcon, PlusIcon, TrashIcon, CalendarDaysIcon, ChartBarIcon, PencilIcon, Bars3Icon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, PresentationChartLineIcon, HomeIcon, ChevronRightIcon, TagIcon } from './Icons';
 
 // This function is timezone-safe and prevents off-by-one day errors.
 const formatDateToYMD = (date: Date) => {
@@ -9,6 +10,19 @@ const formatDateToYMD = (date: Date) => {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+};
+
+const getContrastYIQ = (hexcolor: string) => {
+    if (!hexcolor) return 'black';
+    hexcolor = hexcolor.replace("#", "");
+    if (hexcolor.length === 3) {
+      hexcolor = hexcolor.split('').map(char => char + char).join('');
+    }
+    const r = parseInt(hexcolor.substr(0, 2), 16);
+    const g = parseInt(hexcolor.substr(2, 2), 16);
+    const b = parseInt(hexcolor.substr(4, 2), 16);
+    const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+    return (yiq >= 128) ? 'black' : 'white';
 };
 
 type JobOccurrence = Job & {
@@ -130,6 +144,9 @@ interface BusinessDetailProps {
   onEditOtherExpense: (businessId: string, expense: Expense) => void;
   onDeleteOtherExpense: (businessId: string, expenseId: string) => void;
   onDetachAndEditOccurrence: (businessId: string, originalJobId: string, occurrenceDate: string, newJobData: Omit<Job, 'id' | 'completed'>) => void;
+  onAddLabel: (businessId: string, label: Omit<Label, 'id'>) => void;
+  onEditLabel: (businessId: string, label: Label) => void;
+  onDeleteLabel: (businessId: string, labelId: string) => void;
 }
 
 type View = 'schedule' | 'report';
@@ -140,7 +157,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
     business, onBack, onAddJob, onEditJob, onDeleteJob, onToggleJobStatus,
     onAddOtherIncome, onEditOtherIncome, onDeleteOtherIncome,
     onAddOtherExpense, onEditOtherExpense, onDeleteOtherExpense,
-    onDetachAndEditOccurrence
+    onDetachAndEditOccurrence, onAddLabel, onEditLabel, onDeleteLabel
 }) => {
   const [view, setView] = useState<View>('schedule');
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('monthly');
@@ -158,7 +175,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   // State for Job Modal
   const [isJobModalOpen, setIsJobModalOpen] = useState(false);
   const [editingOccurrence, setEditingOccurrence] = useState<JobOccurrence | null>(null);
-  const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory, isRecurring: false, remindForDeadline: false });
+  const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory, isRecurring: false, remindForDeadline: false, labelId: undefined as string | undefined });
   const [applyToAll, setApplyToAll] = useState(false);
 
 
@@ -171,6 +188,24 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   const [isOtherExpenseModalOpen, setIsOtherExpenseModalOpen] = useState(false);
   const [editingOtherExpense, setEditingOtherExpense] = useState<Expense | null>(null);
   const [otherExpenseFormData, setOtherExpenseFormData] = useState({ title: '', date: '', amount: ''});
+    
+  // State for Label Modal
+  const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
+  const [jobForLabeling, setJobForLabeling] = useState<JobOccurrence | null>(null);
+
+  // State for Job Filters
+  const [filterLabelId, setFilterLabelId] = useState<string>('all');
+  const [filterMonth, setFilterMonth] = useState<string>('all');
+
+  useEffect(() => {
+    if (filterMonth !== 'all') {
+      const [year, month] = filterMonth.split('-').map(Number);
+      const newDate = new Date(year, month - 1, 1);
+      if (!isNaN(newDate.getTime())) {
+        setCurrentDate(newDate);
+      }
+    }
+  }, [filterMonth]);
 
   useEffect(() => {
     if (isJobModalOpen) {
@@ -186,10 +221,11 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
           category: editingOccurrence.category || 'work',
           isRecurring: editingOccurrence.isRecurring || false,
           remindForDeadline: editingOccurrence.remindForDeadline || false,
+          labelId: editingOccurrence.labelId,
         });
         setApplyToAll(false); // Default to not applying to all for safety
       } else {
-        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false, remindForDeadline: false });
+        setJobFormData({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work', isRecurring: false, remindForDeadline: false, labelId: undefined });
       }
     }
   }, [editingOccurrence, isJobModalOpen]);
@@ -238,6 +274,33 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
         occurrenceId: job.id, 
     }));
   }, [business.jobs, selectedDate]);
+  
+  const availableMonths = useMemo(() => {
+    const months = new Set<string>();
+    const addMonth = (dateStr: string) => {
+        if (!dateStr || dateStr.length < 7) return;
+        months.add(dateStr.substring(0, 7)); // 'YYYY-MM'
+    };
+
+    business.jobs.forEach(job => {
+        addMonth(job.date);
+        if (job.isRecurring && job.completions) {
+            Object.keys(job.completions).forEach(addMonth);
+        }
+    });
+
+    return Array.from(months).sort().reverse();
+  }, [business.jobs]);
+
+  const filteredJobOccurrences = useMemo(() => {
+    return jobOccurrences.filter(job => {
+        const monthMatch = filterMonth === 'all' || job.occurrenceDate.startsWith(filterMonth);
+        
+        const labelMatch = filterLabelId === 'all' ? true : job.labelId === filterLabelId;
+        
+        return monthMatch && labelMatch;
+    });
+  }, [jobOccurrences, filterMonth, filterLabelId]);
 
 
   const sortedOtherIncomes = useMemo(() => {
@@ -262,6 +325,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       expenses: jobFormData.category === 'work' ? parseFloat(jobFormData.expenses) || 0 : 0,
       isRecurring: jobFormData.isRecurring,
       remindForDeadline: !!jobFormData.deadline && jobFormData.remindForDeadline,
+      labelId: jobFormData.labelId,
     };
 
     if (editingOccurrence) {
@@ -559,6 +623,16 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
     </li>
   );
   
+  const handleAssignLabel = (job: JobOccurrence, labelId: string | null) => {
+    const updatedJob = {
+        ...job,
+        labelId: labelId ?? undefined,
+    };
+    onEditJob(business.id, updatedJob);
+    setIsLabelModalOpen(false);
+    setJobForLabeling(null);
+  };
+  
   const SidebarContent = () => (
     <>
         <div className={`px-4 pt-4 pb-4 flex items-center gap-3 border-b border-gray-700 ${isSidebarCollapsed ? 'justify-center' : ''}`}>
@@ -703,10 +777,41 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                     </div>
                     
                     <div>
-                        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-2">
-                             <h2 className="text-2xl font-bold text-gray-800">Daftar Jadwal</h2>
-                            {selectedDate && (
-                                <div className="flex items-center gap-2">
+                        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4 p-4 bg-primary-600 text-white rounded-lg shadow">
+                             <h2 className="text-2xl font-bold">Daftar Jadwal</h2>
+                            <div className="flex flex-col sm:flex-row gap-4">
+                                <div>
+                                    <label htmlFor="label-filter" className="sr-only">Filter Label</label>
+                                    <select 
+                                        id="label-filter"
+                                        value={filterLabelId} 
+                                        onChange={e => setFilterLabelId(e.target.value)} 
+                                        className="w-full sm:w-auto px-3 py-2 text-sm bg-primary-700 text-white border-primary-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-white"
+                                    >
+                                        <option value="all">Semua Label</option>
+                                        {business.labels.map(label => <option key={label.id} value={label.id}>{label.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label htmlFor="month-filter" className="sr-only">Filter Bulan</label>
+                                    <select 
+                                        id="month-filter"
+                                        value={filterMonth} 
+                                        onChange={e => setFilterMonth(e.target.value)} 
+                                        className="w-full sm:w-auto px-3 py-2 text-sm bg-primary-700 text-white border-primary-500 rounded-lg focus:outline-none focus:ring-2 focus:ring-white"
+                                    >
+                                        <option value="all">Semua Bulan</option>
+                                        {availableMonths.map(month => {
+                                            const [year, monthNum] = month.split('-');
+                                            const date = new Date(parseInt(year), parseInt(monthNum) - 1);
+                                            return <option key={month} value={month}>{date.toLocaleString('id-ID', { month: 'long', year: 'numeric' })}</option>
+                                        })}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        {selectedDate && (
+                            <div className="flex items-center gap-2 mb-4 p-2 bg-primary-100 rounded-lg">
                                 <p className="text-sm text-gray-600">
                                     Menampilkan untuk: <span className="font-semibold text-primary-700">{new Date(selectedDate + 'T00:00:00').toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
                                 </p>
@@ -714,17 +819,17 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                     <XMarkIcon className="w-3 h-3"/>
                                     <span>Hapus Filter</span>
                                 </button>
-                                </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
                         <div className="space-y-4">
-                            {jobOccurrences.length > 0 ? jobOccurrences.map(job => {
+                            {filteredJobOccurrences.length > 0 ? filteredJobOccurrences.map(job => {
                                 const isExpanded = expandedJobIds.has(job.occurrenceId);
                                 const isExpandable = !!job.description || !!job.notes;
                                 const isCompleted = job.isComplete;
                                 const today = formatDateToYMD(new Date());
                                 const isFuture = job.occurrenceDate > today;
                                 const isCheckboxDisabled = (selectedDate || job.isRecurring) ? isFuture : false;
+                                const label = job.labelId ? business.labels.find(l => l.id === job.labelId) : null;
                                 
                                 let occurrenceDeadline = job.deadline;
                                 if (job.deadline && job.isRecurring) {
@@ -746,6 +851,13 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                                 title={isCheckboxDisabled ? 'Hanya dapat diselesaikan pada atau setelah tanggal jadwal' : ''}
                                             />
                                             <div className="flex-grow">
+                                                <button
+                                                    onClick={() => { setJobForLabeling(job); setIsLabelModalOpen(true); }}
+                                                    className="text-xs font-semibold px-2 py-0.5 rounded-full mb-1 inline-block"
+                                                    style={label ? { backgroundColor: label.color, color: getContrastYIQ(label.color) } : {}}
+                                                >
+                                                     {label ? label.name : <span className="text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full hover:bg-orange-200">+ Tambah Label</span>}
+                                                </button>
                                                 <p className={`font-bold text-gray-800 ${isCompleted ? 'line-through text-gray-400' : ''}`}>
                                                     {job.category === 'task' && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full mr-2">TUGAS</span>}
                                                     {job.isRecurring && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full mr-2">MINGGUAN</span>}
@@ -813,7 +925,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                 )
                             }) : (
                                 <div className="py-12 text-center text-gray-500 bg-white rounded-lg shadow">
-                                    <p>{selectedDate ? 'Tidak ada pekerjaan pada tanggal ini.' : 'Belum ada pekerjaan atau tugas yang ditambahkan.'}</p>
+                                    <p>{selectedDate ? 'Tidak ada pekerjaan pada tanggal ini.' : 'Tidak ada jadwal yang cocok dengan filter yang dipilih.'}</p>
                                 </div>
                             )}
                         </div>
@@ -974,6 +1086,20 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                </div>
 
               <input type="text" placeholder={jobFormData.category === 'work' ? 'Nama Pekerjaan' : 'Nama Tugas'} value={jobFormData.title} onChange={e => setJobFormData({...jobFormData, title: e.target.value})} required className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+               <div>
+                <label htmlFor="job-label" className="block text-sm font-medium text-gray-700">Label (Opsional)</label>
+                <select
+                    id="job-label"
+                    value={jobFormData.labelId || ''}
+                    onChange={e => setJobFormData({ ...jobFormData, labelId: e.target.value || undefined })}
+                    className="mt-1 block w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                >
+                    <option value="">Tanpa Label</option>
+                    {(business.labels || []).map(label => (
+                        <option key={label.id} value={label.id}>{label.name}</option>
+                    ))}
+                </select>
+              </div>
               <textarea placeholder="Deskripsi (opsional)" value={jobFormData.description} onChange={e => setJobFormData({...jobFormData, description: e.target.value})} className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" rows={3}></textarea>
               <textarea placeholder="Catatan Tambahan (opsional)" value={jobFormData.notes} onChange={e => setJobFormData({...jobFormData, notes: e.target.value})} className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" rows={2}></textarea>
               <div>
@@ -1071,8 +1197,109 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
           </div>
         </div>
       )}
+
+       {isLabelModalOpen && jobForLabeling && (
+         <LabelManagerModal 
+            isOpen={isLabelModalOpen} 
+            onClose={() => setIsLabelModalOpen(false)}
+            business={business}
+            job={jobForLabeling}
+            onAssignLabel={handleAssignLabel}
+            onAddLabel={onAddLabel}
+            onEditLabel={onEditLabel}
+            onDeleteLabel={onDeleteLabel}
+         />
+       )}
     </div>
   );
 };
+
+
+const LabelManagerModal: React.FC<{
+    isOpen: boolean,
+    onClose: () => void,
+    business: Business,
+    job: JobOccurrence,
+    onAssignLabel: (job: JobOccurrence, labelId: string | null) => void,
+    onAddLabel: (businessId: string, label: Omit<Label, 'id'>) => void,
+    onEditLabel: (businessId: string, label: Label) => void,
+    onDeleteLabel: (businessId: string, labelId: string) => void,
+}> = ({ isOpen, onClose, business, job, onAssignLabel, onAddLabel, onEditLabel, onDeleteLabel }) => {
+    const [newLabelName, setNewLabelName] = useState('');
+    const [newLabelColor, setNewLabelColor] = useState('#a78bfa');
+    const [editingLabel, setEditingLabel] = useState<Label | null>(null);
+
+    const handleAddLabel = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (newLabelName.trim()) {
+            onAddLabel(business.id, { name: newLabelName.trim(), color: newLabelColor });
+            setNewLabelName('');
+            setNewLabelColor('#a78bfa');
+        }
+    };
+    
+    const handleUpdateLabel = () => {
+        if (editingLabel && editingLabel.name.trim()) {
+            onEditLabel(business.id, editingLabel);
+            setEditingLabel(null);
+        }
+    }
+
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+            <div className="w-full max-w-md p-6 bg-white rounded-lg shadow-xl">
+                <h2 className="text-xl font-bold text-gray-900 truncate">Label untuk: {job.title}</h2>
+                <div className="mt-4 space-y-2 max-h-60 overflow-y-auto pr-2">
+                    <button onClick={() => onAssignLabel(job, null)} className={`w-full text-left p-2 rounded-lg border-2 bg-gray-100 hover:bg-gray-200 ${!job.labelId ? 'border-primary-500 ring-2 ring-primary-300' : 'border-transparent'}`}>
+                        Tanpa Label
+                    </button>
+                    {(business.labels || []).map(label => (
+                        <div key={label.id} className="flex items-center gap-2">
+                             {editingLabel?.id === label.id ? (
+                                <>
+                                    <input type="color" value={editingLabel.color} onChange={e => setEditingLabel({...editingLabel, color: e.target.value})} className="p-0.5 h-7 w-7 block bg-white border border-gray-200 cursor-pointer rounded-lg disabled:opacity-50 disabled:pointer-events-none" />
+                                    <input type="text" value={editingLabel.name} onChange={e => setEditingLabel({...editingLabel, name: e.target.value})} className="flex-grow w-full px-3 py-2 text-gray-900 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+                                    <button onClick={handleUpdateLabel} className="px-3 py-1 font-semibold text-white rounded-lg bg-primary-600 hover:bg-primary-700">Simpan</button>
+                                </>
+                             ) : (
+                                <>
+                                    <button 
+                                        onClick={() => onAssignLabel(job, label.id)} 
+                                        style={{ backgroundColor: label.color, color: getContrastYIQ(label.color) }}
+                                        className={`w-full text-left p-2 rounded-lg border-2 flex items-center gap-2 font-semibold transition-all ${job.labelId === label.id ? 'border-primary-500 ring-2 ring-primary-300' : 'border-transparent hover:brightness-110'}`}
+                                    >
+                                        {label.name}
+                                    </button>
+                                    <button onClick={() => setEditingLabel(label)} className="p-2 text-gray-400 rounded-full hover:bg-blue-100 hover:text-blue-600">
+                                        <PencilIcon />
+                                    </button>
+                                    <button onClick={() => onDeleteLabel(business.id, label.id)} className="p-2 text-gray-400 rounded-full hover:bg-red-100 hover:text-red-600">
+                                        <TrashIcon />
+                                    </button>
+                                </>
+                             )}
+                        </div>
+                    ))}
+                </div>
+                <form onSubmit={handleAddLabel} className="mt-4 pt-4 border-t">
+                     <h3 className="text-md font-semibold text-gray-800">Buat Label Baru</h3>
+                     <div className="flex items-center gap-2 mt-2">
+                        <input type="color" value={newLabelColor} onChange={e => setNewLabelColor(e.target.value)} className="p-0.5 h-10 w-10 block bg-white border border-gray-200 cursor-pointer rounded-lg disabled:opacity-50 disabled:pointer-events-none" />
+                        <input type="text" value={newLabelName} onChange={e => setNewLabelName(e.target.value)} placeholder="Nama label baru" required className="flex-grow w-full px-3 py-2 text-gray-900 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
+                        <button type="submit" className="p-2 font-semibold text-white rounded-lg bg-primary-600 hover:bg-primary-700">
+                            <PlusIcon />
+                        </button>
+                     </div>
+                </form>
+                <div className="flex justify-end gap-2 mt-6">
+                    <button type="button" onClick={onClose} className="px-4 py-2 font-semibold text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300">Tutup</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 export default BusinessDetail;

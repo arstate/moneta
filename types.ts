@@ -1,5 +1,11 @@
 export type JobCategory = 'work' | 'task';
 
+export interface Label {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface Job {
   id: string;
   title:string;
@@ -15,6 +21,7 @@ export interface Job {
   completions?: Record<string, boolean>; // For recurring jobs, e.g., { '2023-10-27': true }
   exceptions?: string[]; // For recurring jobs, dates to skip, e.g., ['2023-11-03']
   remindForDeadline?: boolean;
+  labelId?: string;
 }
 
 export interface OtherIncome {
@@ -37,4 +44,5 @@ export interface Business {
   jobs: Job[];
   otherIncomes: OtherIncome[];
   otherExpenses: Expense[];
+  labels: Label[];
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { Business, Job, OtherIncome, Expense } from './types';
+import type { Business, Job, OtherIncome, Expense, Label } from './types';
 import InitialSetup from './components/InitialSetup';
 import Dashboard from './components/Dashboard';
 import BusinessDetail from './components/BusinessDetail';
@@ -15,6 +15,7 @@ const firebaseObjectToArray = (data: any) => {
         jobs: data[key].jobs ? Object.values(data[key].jobs) : [],
         otherIncomes: data[key].otherIncomes ? Object.values(data[key].otherIncomes) : [],
         otherExpenses: data[key].otherExpenses ? Object.values(data[key].otherExpenses) : [],
+        labels: data[key].labels ? Object.values(data[key].labels) : [],
     }));
 };
 
@@ -76,9 +77,11 @@ const App: React.FC = () => {
                 completions: j.completions || {},
                 exceptions: j.exceptions || [],
                 remindForDeadline: j.remindForDeadline || false,
+                labelId: j.labelId || undefined,
             })),
             otherIncomes: b.otherIncomes || [],
             otherExpenses: b.otherExpenses || [],
+            labels: b.labels || [],
         }));
         setBusinesses(compatibleBusinesses);
     });
@@ -101,15 +104,16 @@ const App: React.FC = () => {
     if (businesses.length === 0) {
         setIsCreatingFirstBusiness(true);
     }
+    const newBusinessData = { name, jobs: [], otherIncomes: [], otherExpenses: [], labels: [] };
     if (isGuestMode) {
-      const newBusiness = { id: `guest_${Date.now()}`, name, jobs: [], otherIncomes: [], otherExpenses: [] };
+      const newBusiness = { ...newBusinessData, id: `guest_${Date.now()}` };
       setBusinesses(prev => [...prev, newBusiness]);
       return;
     }
     if (!currentUser) return;
     const businessesRef = db.ref(`users/${currentUser.uid}/businesses`);
     const newBusinessRef = businessesRef.push();
-    newBusinessRef.set({ id: newBusinessRef.key, name, jobs: {}, otherIncomes: {}, otherExpenses: {} });
+    newBusinessRef.set({ ...newBusinessData, id: newBusinessRef.key });
   }, [currentUser, isGuestMode, businesses]);
 
   const handleDeleteBusiness = useCallback((id: string) => {
@@ -135,7 +139,7 @@ const App: React.FC = () => {
   const handleSelectBusiness = useCallback((id: string) => { setSelectedBusinessId(id); }, []);
   const handleBackToDashboard = useCallback(() => { setSelectedBusinessId(null); }, []);
 
-  const handleAddJob = useCallback((businessId: string, job: Omit<Job, 'id' | 'completed'>) => {
+  const handleAddJob = useCallback((businessId: string, job: Omit<Job, 'id' | 'completed' | 'completions'>) => {
     let jobToSave: Omit<Job, 'id'>;
 
     if (job.isRecurring) {
@@ -314,6 +318,60 @@ const App: React.FC = () => {
     }
   }, [isGuestMode]);
 
+  // --- LABEL MANAGEMENT ---
+  const handleAddLabel = useCallback((businessId: string, label: Omit<Label, 'id'>) => {
+    if (isGuestMode) {
+        const newLabel = { ...label, id: `guest_label_${Date.now()}` };
+        setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, labels: [...(b.labels || []), newLabel] } : b));
+        return;
+    }
+    if (!currentUser) return;
+    const labelsRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/labels`);
+    const newLabelRef = labelsRef.push();
+    newLabelRef.set({ ...label, id: newLabelRef.key });
+  }, [currentUser, isGuestMode]);
+
+  const handleEditLabel = useCallback((businessId: string, updatedLabel: Label) => {
+    if (isGuestMode) {
+        setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, labels: (b.labels || []).map(l => l.id === updatedLabel.id ? updatedLabel : l) } : b));
+        return;
+    }
+    if (!currentUser) return;
+    const { id, ...labelData } = updatedLabel;
+    const labelRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/labels/${id}`);
+    labelRef.update(labelData);
+  }, [currentUser, isGuestMode]);
+
+  const handleDeleteLabel = useCallback((businessId: string, labelId: string) => {
+    const business = businesses.find(b => b.id === businessId);
+    if (!business) return;
+
+    const updatedJobs = business.jobs.map(job => {
+        if (job.labelId === labelId) {
+            const { labelId: _, ...rest } = job;
+            return rest as Job;
+        }
+        return job;
+    });
+
+    if (isGuestMode) {
+        setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, jobs: updatedJobs, labels: (b.labels || []).filter(l => l.id !== labelId) } : b));
+        return;
+    }
+
+    if (!currentUser) return;
+
+    const updates: { [key: string]: any } = {};
+    business.jobs.forEach(job => {
+        if (job.labelId === labelId) {
+            updates[`/users/${currentUser.uid}/businesses/${businessId}/jobs/${job.id}/labelId`] = null;
+        }
+    });
+    updates[`/users/${currentUser.uid}/businesses/${businessId}/labels/${labelId}`] = null;
+    db.ref().update(updates);
+  }, [currentUser, isGuestMode, businesses]);
+
+
     // --- DEADLINE NOTIFICATION FEATURE ---
     const formatDateToYMD = (date: Date) => {
         const year = date.getFullYear();
@@ -435,6 +493,9 @@ const App: React.FC = () => {
         onEditOtherExpense={handleEditOtherExpense}
         onDeleteOtherExpense={handleDeleteOtherExpense}
         onDetachAndEditOccurrence={handleDetachAndEditOccurrence}
+        onAddLabel={handleAddLabel}
+        onEditLabel={handleEditLabel}
+        onDeleteLabel={handleDeleteLabel}
       />
     );
   }
