@@ -178,11 +178,7 @@ const App: React.FC = () => {
     }
 
     gapi.client.setToken({ access_token: token });
-
-    // Fix: Correctly create the event object for the Google Calendar API.
-    // This resolves a TypeScript error by explicitly defining the `start` and `end`
-    // properties to allow either `date` (for all-day events) or `dateTime` (for timed events),
-    // and then conditionally setting the appropriate property.
+    
     const event: {
       summary: string;
       description: string;
@@ -196,8 +192,11 @@ const App: React.FC = () => {
     };
 
     if (job.deadline) {
-        event.start.dateTime = job.deadline;
-        event.end.dateTime = new Date(new Date(job.deadline).getTime() + 60 * 60 * 1000).toISOString(); // Default 1 hour duration
+        const startTime = new Date(job.deadline);
+        const endTime = new Date(startTime.getTime() + 60 * 60 * 1000); // Default 1 hour duration
+
+        event.start.dateTime = startTime.toISOString();
+        event.end.dateTime = endTime.toISOString();
     } else {
         event.start.date = job.date;
         event.end.date = job.date;
