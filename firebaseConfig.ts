@@ -5,7 +5,7 @@ import 'firebase/compat/auth';
 import 'firebase/compat/database';
 
 // Your web app's Firebase configuration
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyBQTc1b1fdphdk2Gq8cFJCeK58FNTB1l1I",
   authDomain: "moneta-fcf20.firebaseapp.com",
   databaseURL: "https://moneta-fcf20-default-rtdb.asia-southeast1.firebasedatabase.app",

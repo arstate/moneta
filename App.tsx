@@ -1,11 +1,12 @@
 
+
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Business, Job, OtherIncome, Expense, Label } from './types';
 import InitialSetup from './components/InitialSetup';
 import Dashboard from './components/Dashboard';
 import BusinessDetail from './components/BusinessDetail';
 import Login from './components/Login';
-import { auth, db } from './firebaseConfig';
+import { auth, db, firebaseConfig } from './firebaseConfig';
 import firebase from 'firebase/compat/app';
 
 const firebaseObjectToArray = (data: any) => {
@@ -26,6 +27,8 @@ const guestUser = {
   email: 'guest@example.com',
 };
 
+declare const gapi: any;
+
 const App: React.FC = () => {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(null);
@@ -38,12 +41,29 @@ const App: React.FC = () => {
     const unsubscribe = auth.onAuthStateChanged(user => {
       if (user) {
         setIsGuestMode(false);
+      } else {
+        sessionStorage.removeItem('gcal_access_token');
       }
       setCurrentUser(user);
       setIsLoading(false);
     });
     return () => unsubscribe();
   }, []);
+  
+  // Initialize Google API Client
+  useEffect(() => {
+    const initGapiClient = () => {
+        gapi.client.init({
+            apiKey: firebaseConfig.apiKey,
+            discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest"],
+        }).catch((err: any) => console.error("Error initializing GAPI client:", err));
+    };
+
+    if (currentUser && !isGuestMode) {
+        gapi.load('client', initGapiClient);
+    }
+  }, [currentUser, isGuestMode]);
+
 
   useEffect(() => {
     if (isGuestMode) {
@@ -79,6 +99,7 @@ const App: React.FC = () => {
                 exceptions: j.exceptions || [],
                 remindForDeadline: j.remindForDeadline || false,
                 labelId: j.labelId || undefined,
+                googleCalendarEventId: j.googleCalendarEventId || undefined,
             })),
             otherIncomes: b.otherIncomes || [],
             otherExpenses: b.otherExpenses || [],
@@ -118,6 +139,14 @@ const App: React.FC = () => {
   }, [currentUser, isGuestMode, businesses]);
 
   const handleDeleteBusiness = useCallback((id: string) => {
+    // Before deleting business, delete all associated GCal events
+    const business = businesses.find(b => b.id === id);
+    business?.jobs.forEach(job => {
+      if (job.googleCalendarEventId) {
+        handleDeleteJobFromGCal(job.googleCalendarEventId);
+      }
+    });
+
     if (isGuestMode) {
       setBusinesses(prev => prev.filter(b => b.id !== id));
       return;
@@ -125,7 +154,7 @@ const App: React.FC = () => {
     if (!currentUser) return;
     const businessRef = db.ref(`users/${currentUser.uid}/businesses/${id}`);
     businessRef.remove();
-  }, [currentUser, isGuestMode]);
+  }, [currentUser, isGuestMode, businesses]);
 
   const handleRenameBusiness = useCallback((id: string, newName: string) => {
     if (isGuestMode) {
@@ -140,7 +169,90 @@ const App: React.FC = () => {
   const handleSelectBusiness = useCallback((id: string) => { setSelectedBusinessId(id); }, []);
   const handleBackToDashboard = useCallback(() => { setSelectedBusinessId(null); }, []);
 
-  const handleAddJob = useCallback((businessId: string, job: Omit<Job, 'id' | 'completed' | 'completions'>) => {
+  // --- Google Calendar Sync ---
+  const handleSyncJobToGCal = useCallback(async (job: Job, businessName: string) => {
+    const token = sessionStorage.getItem('gcal_access_token');
+    if (!token || isGuestMode || !gapi.client?.calendar) {
+      console.log('GCal sync skipped: No token, guest mode, or GAPI not ready.');
+      return;
+    }
+
+    gapi.client.setToken({ access_token: token });
+
+    // Fix: Correctly create the event object for the Google Calendar API.
+    // This resolves a TypeScript error by explicitly defining the `start` and `end`
+    // properties to allow either `date` (for all-day events) or `dateTime` (for timed events),
+    // and then conditionally setting the appropriate property.
+    const event: {
+      summary: string;
+      description: string;
+      start: { date?: string; dateTime?: string; timeZone: string };
+      end: { date?: string; dateTime?: string; timeZone: string };
+    } = {
+        summary: `${job.title} (${businessName})`,
+        description: job.description || 'Dicatat melalui aplikasi Manajer Usaha.',
+        start: { timeZone: 'Asia/Jakarta' },
+        end: { timeZone: 'Asia/Jakarta' },
+    };
+
+    if (job.deadline) {
+        event.start.dateTime = job.deadline;
+        event.end.dateTime = new Date(new Date(job.deadline).getTime() + 60 * 60 * 1000).toISOString(); // Default 1 hour duration
+    } else {
+        event.start.date = job.date;
+        event.end.date = job.date;
+    }
+    
+    try {
+        let response;
+        if (job.googleCalendarEventId) {
+            // Update existing event
+            response = await gapi.client.calendar.events.update({
+                'calendarId': 'primary',
+                'eventId': job.googleCalendarEventId,
+                'resource': event,
+            });
+            console.log('Event updated: ', response.result);
+            return job.googleCalendarEventId;
+        } else {
+            // Create new event
+            response = await gapi.client.calendar.events.insert({
+                'calendarId': 'primary',
+                'resource': event,
+            });
+            console.log('Event created: ', response.result);
+            return response.result.id;
+        }
+    } catch (err) {
+        console.error("Error syncing to Google Calendar:", err);
+        if ((err as any).status === 401) {
+          alert("Sesi Google Anda telah berakhir. Silakan logout dan login kembali untuk menyegarkan.");
+          sessionStorage.removeItem('gcal_access_token');
+        }
+        return null;
+    }
+  }, [isGuestMode]);
+
+  const handleDeleteJobFromGCal = useCallback(async (eventId: string) => {
+    const token = sessionStorage.getItem('gcal_access_token');
+    if (!token || isGuestMode || !gapi.client?.calendar) {
+        console.log('GCal delete skipped: No token, guest mode, or GAPI not ready.');
+        return;
+    }
+    gapi.client.setToken({ access_token: token });
+    try {
+        await gapi.client.calendar.events.delete({
+            'calendarId': 'primary',
+            'eventId': eventId,
+        });
+        console.log('Event deleted from Google Calendar.');
+    } catch (err) {
+        console.error("Error deleting from Google Calendar:", err);
+    }
+  }, [isGuestMode]);
+
+
+  const handleAddJob = useCallback(async (businessId: string, job: Omit<Job, 'id' | 'completed' | 'completions'>, syncToGCal: boolean) => {
     let jobToSave: Omit<Job, 'id'>;
 
     if (job.isRecurring) {
@@ -150,10 +262,10 @@ const App: React.FC = () => {
         delete (jobToSave as Partial<Job>).completions;
     }
 
-    const jobDataForDb = { ...jobToSave };
-    if (jobDataForDb.labelId === undefined) {
-        (jobDataForDb as any).labelId = null;
-    }
+    const jobDataForDb: any = { ...jobToSave };
+    if (jobDataForDb.labelId === undefined) jobDataForDb.labelId = null;
+    if (jobDataForDb.googleCalendarEventId === undefined) jobDataForDb.googleCalendarEventId = null;
+
 
     if (isGuestMode) {
         const newJobWithId = { ...jobDataForDb, id: `guest_job_${Date.now()}` } as Job;
@@ -164,30 +276,61 @@ const App: React.FC = () => {
         ));
         return;
     }
+
     if (!currentUser) return;
+
     const jobsRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs`);
     const newJobRef = jobsRef.push();
-    newJobRef.set({ ...jobDataForDb, id: newJobRef.key });
-  }, [currentUser, isGuestMode]);
+    const newJobId = newJobRef.key;
+    
+    let gcalEventId = null;
+    if (syncToGCal && !job.isRecurring) {
+      const business = businesses.find(b => b.id === businessId);
+      gcalEventId = await handleSyncJobToGCal({ ...job, id: newJobId! }, business?.name || '');
+    }
 
-  const handleEditJob = useCallback((businessId: string, updatedJob: Job) => {
+    await newJobRef.set({ ...jobDataForDb, id: newJobId, googleCalendarEventId: gcalEventId });
+
+  }, [currentUser, isGuestMode, businesses, handleSyncJobToGCal]);
+
+  const handleEditJob = useCallback(async (businessId: string, updatedJob: Job, syncToGCal: boolean) => {
+    let finalJob = { ...updatedJob };
+    
     if (isGuestMode) {
-      setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, jobs: b.jobs.map(j => j.id === updatedJob.id ? updatedJob : j) } : b));
+      setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, jobs: b.jobs.map(j => j.id === finalJob.id ? finalJob : j) } : b));
       return;
     }
     if (!currentUser) return;
-    const { id, ...jobData } = updatedJob;
+    
+    const business = businesses.find(b => b.id === businessId);
 
-    const updateData: { [key: string]: any } = { ...jobData };
-    if (updateData.labelId === undefined) {
-      updateData.labelId = null;
+    if (syncToGCal && !finalJob.isRecurring) {
+        const gcalEventId = await handleSyncJobToGCal(finalJob, business?.name || '');
+        if (gcalEventId) {
+            finalJob.googleCalendarEventId = gcalEventId;
+        }
+    } else if (!syncToGCal && finalJob.googleCalendarEventId) {
+        await handleDeleteJobFromGCal(finalJob.googleCalendarEventId);
+        finalJob.googleCalendarEventId = undefined;
     }
 
+
+    const { id, ...jobData } = finalJob;
+    const updateData: { [key: string]: any } = { ...jobData };
+    if (updateData.labelId === undefined) updateData.labelId = null;
+    if (updateData.googleCalendarEventId === undefined) updateData.googleCalendarEventId = null;
+
     const jobRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs/${id}`);
-    jobRef.update(updateData);
-  }, [currentUser, isGuestMode]);
+    await jobRef.update(updateData);
+
+  }, [currentUser, isGuestMode, businesses, handleSyncJobToGCal, handleDeleteJobFromGCal]);
 
   const handleDeleteJob = useCallback((businessId: string, jobId: string) => {
+    const job = businesses.find(b => b.id === businessId)?.jobs.find(j => j.id === jobId);
+    if (job?.googleCalendarEventId) {
+        handleDeleteJobFromGCal(job.googleCalendarEventId);
+    }
+
     if (isGuestMode) {
       setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, jobs: b.jobs.filter(j => j.id !== jobId) } : b));
       return;
@@ -195,7 +338,7 @@ const App: React.FC = () => {
     if (!currentUser) return;
     const jobRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs/${jobId}`);
     jobRef.remove();
-  }, [currentUser, isGuestMode]);
+  }, [currentUser, isGuestMode, businesses, handleDeleteJobFromGCal]);
   
   const handleToggleJobStatus = useCallback((businessId: string, jobId: string, occurrenceDate: string) => {
     const business = businesses.find(b => b.id === businessId);
@@ -214,7 +357,7 @@ const App: React.FC = () => {
     } else {
         updatedJob = { ...job, completed: !job.completed };
     }
-    handleEditJob(businessId, updatedJob);
+    handleEditJob(businessId, updatedJob, !!updatedJob.googleCalendarEventId);
   }, [businesses, handleEditJob]);
   
   const handleDetachAndEditOccurrence = useCallback((businessId: string, originalJobId: string, occurrenceDate: string, newJobData: Omit<Job, 'id' | 'completed'>) => {
@@ -248,7 +391,7 @@ const App: React.FC = () => {
         const originalJobRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs/${originalJobId}`);
         originalJobRef.update({ exceptions: updatedExceptions });
 
-        handleAddJob(businessId, newJobData);
+        handleAddJob(businessId, newJobData, false);
     }
   }, [isGuestMode, currentUser, businesses, handleAddJob]);
 

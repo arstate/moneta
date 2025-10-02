@@ -11,9 +11,17 @@ const Login: React.FC<LoginProps> = ({ onGuestLogin }) => {
 
   const signInWithGoogle = () => {
     const provider = new firebase.auth.GoogleAuthProvider();
-    auth.signInWithPopup(provider).catch(error => {
-        console.error("Error during sign in:", error);
-        alert(error.message);
+    provider.addScope('https://www.googleapis.com/auth/calendar.events');
+    auth.signInWithPopup(provider)
+        .then((result) => {
+            const credential = result.credential as firebase.auth.OAuthCredential;
+            if (credential?.accessToken) {
+                sessionStorage.setItem('gcal_access_token', credential.accessToken);
+            }
+        })
+        .catch(error => {
+            console.error("Error during sign in:", error);
+            alert(error.message);
     });
   };
 

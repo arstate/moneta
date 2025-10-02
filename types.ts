@@ -22,6 +22,7 @@ export interface Job {
   exceptions?: string[]; // For recurring jobs, dates to skip, e.g., ['2023-11-03']
   remindForDeadline?: boolean;
   labelId?: string;
+  googleCalendarEventId?: string; // ID for the Google Calendar event
 }
 
 export interface OtherIncome {

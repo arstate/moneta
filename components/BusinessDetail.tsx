@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Business, Job, OtherIncome, Expense, JobCategory, Label } from '../types';
 import IncomeChart from './IncomeChart';
-import { ChevronLeftIcon, PlusIcon, TrashIcon, CalendarDaysIcon, ChartBarIcon, PencilIcon, Bars3Icon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, PresentationChartLineIcon, HomeIcon, ChevronRightIcon, TagIcon } from './Icons';
+import { ChevronLeftIcon, PlusIcon, TrashIcon, CalendarDaysIcon, ChartBarIcon, PencilIcon, Bars3Icon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, PresentationChartLineIcon, HomeIcon, ChevronRightIcon, TagIcon, CalendarPlusIcon } from './Icons';
 
 // This function is timezone-safe and prevents off-by-one day errors.
 const formatDateToYMD = (date: Date) => {
@@ -133,8 +133,8 @@ const DeadlineCountdown: React.FC<DeadlineCountdownProps> = ({ deadline }) => {
 interface BusinessDetailProps {
   business: Business;
   onBack: () => void;
-  onAddJob: (businessId: string, job: Omit<Job, 'id' | 'completed' | 'completions'>) => void;
-  onEditJob: (businessId: string, job: Job) => void;
+  onAddJob: (businessId: string, job: Omit<Job, 'id' | 'completed' | 'completions'>, syncToGCal: boolean) => void;
+  onEditJob: (businessId: string, job: Job, syncToGCal: boolean) => void;
   onDeleteJob: (businessId: string, jobId: string) => void;
   onToggleJobStatus: (businessId: string, jobId: string, occurrenceDate: string) => void;
   onAddOtherIncome: (businessId: string, income: Omit<OtherIncome, 'id'>) => void;
@@ -178,7 +178,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   const [editingOccurrence, setEditingOccurrence] = useState<JobOccurrence | null>(null);
   const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory, isRecurring: false, remindForDeadline: false, labelId: undefined as string | undefined });
   const [applyToAll, setApplyToAll] = useState(false);
-
+  const [syncToGCal, setSyncToGCal] = useState(false);
 
   // State for Other Income Modal
   const [isOtherIncomeModalOpen, setIsOtherIncomeModalOpen] = useState(false);
@@ -197,6 +197,9 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   // State for Job Filters
   const [filterLabelId, setFilterLabelId] = useState<string>('all');
   const [filterMonth, setFilterMonth] = useState<string>('all');
+  
+  const hasGCalAccess = !!sessionStorage.getItem('gcal_access_token');
+
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -310,6 +313,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       remindForDeadline: false, 
       labelId: filterLabelId !== 'all' ? filterLabelId : undefined 
     });
+    setSyncToGCal(false);
     setIsJobModalOpen(true);
   };
 
@@ -329,6 +333,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       labelId: job.labelId,
     });
     setApplyToAll(false);
+    setSyncToGCal(!!job.googleCalendarEventId);
     setIsJobModalOpen(true);
   };
 
@@ -364,10 +369,10 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
             onEditJob(business.id, { 
                 ...jobTemplate, 
                 ...jobData,
-            });
+            }, syncToGCal);
         }
     } else {
-      onAddJob(business.id, jobData);
+      onAddJob(business.id, jobData, syncToGCal);
       // Reset all filters to ensure the new job is visible
       setFilterLabelId('all');
       setFilterMonth('all');
@@ -654,7 +659,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
         ...jobTemplate,
         labelId: labelId ?? undefined,
     };
-    onEditJob(business.id, updatedJob);
+    onEditJob(business.id, updatedJob, !!updatedJob.googleCalendarEventId);
     setIsLabelModalOpen(false);
     setJobForLabeling(null);
   };
@@ -904,6 +909,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                                 <p className={`font-bold text-gray-800 ${isCompleted ? 'line-through text-gray-400' : ''}`}>
                                                     {job.category === 'task' && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full mr-2">TUGAS</span>}
                                                     {job.isRecurring && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full mr-2">MINGGUAN</span>}
+                                                    {job.googleCalendarEventId && <CalendarPlusIcon className="inline-block w-4 h-4 text-blue-500 mr-1" />}
                                                     {job.title}
                                                 </p>
                                                 {job.description && <p className={`text-sm text-gray-600 mt-1 whitespace-pre-wrap ${isCompleted ? 'line-through text-gray-400' : ''}`}>{job.description}</p>}
@@ -1196,6 +1202,24 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                     <input type="number" placeholder="Pengeluaran (Rp)" value={jobFormData.expenses} onChange={e => setJobFormData({...jobFormData, expenses: e.target.value})} required className="w-full px-3 py-2 text-gray-900 placeholder-gray-500 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-primary-500 focus:border-primary-500" />
                 </>
               )}
+              
+               {hasGCalAccess && !jobFormData.isRecurring && (
+                  <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
+                      <input
+                          id="gcal-sync"
+                          type="checkbox"
+                          checked={syncToGCal}
+                          onChange={e => setSyncToGCal(e.target.checked)}
+                          className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                          title={jobFormData.isRecurring ? "Sinkronisasi belum didukung untuk jadwal berulang" : ""}
+                      />
+                      <label htmlFor="gcal-sync" className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                          <CalendarPlusIcon className="w-5 h-5 text-blue-600"/>
+                          Sinkronkan ke Google Calendar
+                      </label>
+                  </div>
+              )}
+
 
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setIsJobModalOpen(false)} className="px-4 py-2 font-semibold text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300">Batal</button>
