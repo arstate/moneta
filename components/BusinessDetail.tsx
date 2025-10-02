@@ -339,11 +339,11 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
             onDetachAndEditOccurrence(business.id, editingOccurrence.id, editingOccurrence.occurrenceDate, newStandaloneJobData);
         } else {
              // Edit the original job (applies to all future occurrences if recurring)
+            // Strip occurrence-specific fields before saving to the template.
+            const { occurrenceDate, isComplete, occurrenceId, ...jobTemplate } = editingOccurrence;
             onEditJob(business.id, { 
-                ...editingOccurrence, 
+                ...jobTemplate, 
                 ...jobData,
-                // Ensure ID from original job is used
-                id: editingOccurrence.id,
             });
         }
     } else {
@@ -624,8 +624,10 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   );
   
   const handleAssignLabel = (job: JobOccurrence, labelId: string | null) => {
-    const updatedJob = {
-        ...job,
+    // Destructure to remove occurrence-specific properties before saving.
+    const { occurrenceDate, isComplete, occurrenceId, ...jobTemplate } = job;
+    const updatedJob: Job = {
+        ...jobTemplate,
         labelId: labelId ?? undefined,
     };
     onEditJob(business.id, updatedJob);
