@@ -138,9 +138,6 @@ const App: React.FC = () => {
     let jobToSave: Omit<Job, 'id'>;
 
     if (job.isRecurring) {
-        // FIX: Added `completed: false` to satisfy the `Job` type which requires this property.
-        // For recurring jobs, completion is tracked via 'completions', but the 'completed'
-        // property is still needed. The `delete` statement was incorrect and has been removed.
         jobToSave = { ...job, completed: false, completions: {} };
     } else {
         jobToSave = { ...job, completed: false };
@@ -213,10 +210,8 @@ const App: React.FC = () => {
             const originalJob = business.jobs.find((j: Job) => j.id === originalJobId);
             if (!originalJob) return prevBusinesses;
 
-            // 1. Add exception to original job
             originalJob.exceptions = [...(originalJob.exceptions || []), occurrenceDate];
 
-            // 2. Add new standalone job
             const newStandaloneJob = {
                 ...newJobData,
                 id: `guest_job_${Date.now()}`,
@@ -232,12 +227,10 @@ const App: React.FC = () => {
         const originalJob = business?.jobs.find(j => j.id === originalJobId);
         if (!originalJob) return;
 
-        // 1. Update original job in Firebase with exception
         const updatedExceptions = [...(originalJob.exceptions || []), occurrenceDate];
         const originalJobRef = db.ref(`users/${currentUser.uid}/businesses/${businessId}/jobs/${originalJobId}`);
         originalJobRef.update({ exceptions: updatedExceptions });
 
-        // 2. Add new standalone job in Firebase
         handleAddJob(businessId, newJobData);
     }
   }, [isGuestMode, currentUser, businesses, handleAddJob]);
@@ -319,6 +312,101 @@ const App: React.FC = () => {
         auth.signOut();
     }
   }, [isGuestMode]);
+
+    // --- DEADLINE NOTIFICATION FEATURE ---
+    const formatDateToYMD = (date: Date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
+    useEffect(() => {
+        if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+            Notification.requestPermission();
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!businesses || businesses.length === 0 || (!currentUser && !isGuestMode)) return;
+
+        const checkDeadlinesAndNotify = () => {
+            if (!('Notification' in window) || Notification.permission !== 'granted') {
+                return;
+            }
+
+            const now = new Date();
+            const oneDay = 1000 * 60 * 60 * 24;
+
+            businesses.forEach(business => {
+                business.jobs?.forEach(job => {
+                    if (!job.deadline) return;
+
+                    const checkAndSendNotification = (occurrenceDateStr: string, deadlineStr: string, isCompleted: boolean) => {
+                        if (isCompleted) return;
+
+                        const deadline = new Date(deadlineStr);
+                        if (isNaN(deadline.getTime()) || deadline <= now) return;
+
+                        const notificationId = `notified-${job.id}-${occurrenceDateStr}`;
+                        if (localStorage.getItem(notificationId)) return;
+
+                        const daysUntilDeadline = Math.ceil((deadline.getTime() - now.getTime()) / oneDay);
+
+                        if (daysUntilDeadline > 0 && daysUntilDeadline <= 3) {
+                            const notification = new Notification('Tenggat Waktu Mendekat', {
+                                body: `"${job.title}" di usaha "${business.name}" akan berakhir dalam ${daysUntilDeadline} hari.`,
+                            });
+                            
+                            notification.onclick = () => {
+                                window.focus();
+                                handleSelectBusiness(business.id);
+                            };
+
+                            localStorage.setItem(notificationId, 'true');
+                        }
+                    };
+
+                    // Handle non-recurring jobs
+                    if (!job.isRecurring) {
+                        checkAndSendNotification(job.date, job.deadline, job.completed);
+                    } 
+                    // Handle recurring jobs
+                    else {
+                        const deadlineTime = job.deadline.split('T')[1];
+                        if (!deadlineTime) return;
+
+                        const startDate = new Date(`${job.date}T00:00:00`);
+                        if (isNaN(startDate.getTime())) return;
+                        const jobDayOfWeek = startDate.getDay();
+                        
+                        for (let i = 0; i <= 3; i++) {
+                            const checkDate = new Date();
+                            checkDate.setDate(now.getDate() + i);
+                            checkDate.setHours(0, 0, 0, 0);
+
+                            if (checkDate >= startDate && checkDate.getDay() === jobDayOfWeek) {
+                                const occurrenceDateStr = formatDateToYMD(checkDate);
+                                
+                                const isException = job.exceptions?.includes(occurrenceDateStr);
+                                const isCompleted = job.completions && job.completions[occurrenceDateStr];
+
+                                if (!isException) {
+                                    const occurrenceDeadlineStr = `${occurrenceDateStr}T${deadlineTime}`;
+                                    checkAndSendNotification(occurrenceDateStr, occurrenceDeadlineStr, !!isCompleted);
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+        };
+
+        const timerId = setTimeout(checkDeadlinesAndNotify, 2000); // Delay to prevent blocking render
+        return () => clearTimeout(timerId);
+
+    }, [businesses, currentUser, isGuestMode, handleSelectBusiness]);
+    // --- END DEADLINE NOTIFICATION FEATURE ---
 
   if (isLoading) {
     return <div className="flex items-center justify-center min-h-screen text-lg font-semibold text-primary-700">Memuat Aplikasi...</div>;
