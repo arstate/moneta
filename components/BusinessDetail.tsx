@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import type { Business, Job, OtherIncome, Expense, JobCategory, Label } from '../types';
 import IncomeChart from './IncomeChart';
-import { ChevronLeftIcon, PlusIcon, TrashIcon, CalendarDaysIcon, ChartBarIcon, PencilIcon, Bars3Icon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, PresentationChartLineIcon, HomeIcon, ChevronRightIcon, TagIcon, CalendarPlusIcon } from './Icons';
+import { ChevronLeftIcon, PlusIcon, TrashIcon, CalendarDaysIcon, ChartBarIcon, PencilIcon, Bars3Icon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, PresentationChartLineIcon, HomeIcon, ChevronRightIcon, TagIcon } from './Icons';
 
 // This function is timezone-safe and prevents off-by-one day errors.
 const formatDateToYMD = (date: Date) => {
@@ -62,6 +62,35 @@ const generateJobOccurrencesForDate = (jobs: Job[], targetDate: string): JobOccu
         }
     }
     return occurrences.sort((a, b) => a.title.localeCompare(b.title));
+};
+
+
+const getNextOccurrenceDate = (job: Job, from: Date): string => {
+    if (!job.isRecurring) {
+        return job.date;
+    }
+
+    const startDate = new Date(`${job.date}T00:00:00`);
+    if (isNaN(startDate.getTime())) return '9999-12-31'; // Invalid start date, push to end
+
+    const jobDayOfWeek = startDate.getDay();
+    let currentDate = new Date(from);
+    currentDate.setHours(0,0,0,0);
+
+    // If the job's start date is in the future, start searching from there
+    if (currentDate < startDate) {
+        currentDate = startDate;
+    }
+
+    for (let i = 0; i < 365 * 2; i++) { // Look ahead 2 years
+        const dateYMD = formatDateToYMD(currentDate);
+        if (currentDate.getDay() === jobDayOfWeek && !job.exceptions?.includes(dateYMD)) {
+            return dateYMD;
+        }
+        currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return '9999-12-31'; // No occurrence found, push to end
 };
 
 
@@ -133,8 +162,8 @@ const DeadlineCountdown: React.FC<DeadlineCountdownProps> = ({ deadline }) => {
 interface BusinessDetailProps {
   business: Business;
   onBack: () => void;
-  onAddJob: (businessId: string, job: Omit<Job, 'id' | 'completed' | 'completions'>, syncToGCal: boolean) => void;
-  onEditJob: (businessId: string, job: Job, syncToGCal: boolean) => void;
+  onAddJob: (businessId: string, job: Omit<Job, 'id' | 'completed' | 'completions'>) => void;
+  onEditJob: (businessId: string, job: Job) => void;
   onDeleteJob: (businessId: string, jobId: string) => void;
   onToggleJobStatus: (businessId: string, jobId: string, occurrenceDate: string) => void;
   onAddOtherIncome: (businessId: string, income: Omit<OtherIncome, 'id'>) => void;
@@ -178,7 +207,6 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   const [editingOccurrence, setEditingOccurrence] = useState<JobOccurrence | null>(null);
   const [jobFormData, setJobFormData] = useState({ title: '', description: '', notes: '', date: '', deadline: '', grossIncome: '', expenses: '', category: 'work' as JobCategory, isRecurring: false, remindForDeadline: false, labelId: undefined as string | undefined });
   const [applyToAll, setApplyToAll] = useState(false);
-  const [syncToGCal, setSyncToGCal] = useState(false);
 
   // State for Other Income Modal
   const [isOtherIncomeModalOpen, setIsOtherIncomeModalOpen] = useState(false);
@@ -199,9 +227,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
   const [filterMonth, setFilterMonth] = useState<string>('all');
   const [filterCompletionStatus, setFilterCompletionStatus] = useState<'all' | 'completed' | 'not-completed'>('not-completed');
   
-  const hasGCalAccess = !!sessionStorage.getItem('gcal_access_token');
-
-
+  
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
@@ -250,13 +276,28 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
     if (selectedDate) {
         return generateJobOccurrencesForDate(business.jobs, selectedDate);
     }
-    // When no date is selected, we show a list of job "templates"
-    const sorted = [...business.jobs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    return sorted.map(job => ({
+    
+    // New sorting logic for the main list view
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayYMD = formatDateToYMD(today);
+
+    const jobsWithSortDate = business.jobs.map(job => ({
+        job,
+        sortDate: getNextOccurrenceDate(job, today),
+    }));
+
+    const upcomingJobs = jobsWithSortDate.filter(item => item.sortDate >= todayYMD);
+    const pastJobs = jobsWithSortDate.filter(item => item.sortDate < todayYMD);
+    
+    upcomingJobs.sort((a, b) => a.sortDate.localeCompare(b.sortDate));
+    pastJobs.sort((a, b) => b.sortDate.localeCompare(a.sortDate));
+
+    const sortedJobs = [...upcomingJobs, ...pastJobs].map(item => item.job);
+
+    return sortedJobs.map(job => ({
         ...job,
         occurrenceDate: job.date,
-        // For the main list, 'isComplete' is based on the non-recurring flag, 
-        // or for recurring jobs, it's just false as it's a template.
         isComplete: job.isRecurring ? false : job.completed, 
         occurrenceId: job.id, 
     }));
@@ -320,7 +361,6 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       remindForDeadline: false, 
       labelId: filterLabelId !== 'all' ? filterLabelId : undefined 
     });
-    setSyncToGCal(false);
     setIsJobModalOpen(true);
   };
 
@@ -340,7 +380,6 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
       labelId: job.labelId,
     });
     setApplyToAll(false);
-    setSyncToGCal(!!job.googleCalendarEventId);
     setIsJobModalOpen(true);
   };
 
@@ -376,10 +415,10 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
             onEditJob(business.id, { 
                 ...jobTemplate, 
                 ...jobData,
-            }, syncToGCal);
+            });
         }
     } else {
-      onAddJob(business.id, jobData, syncToGCal);
+      onAddJob(business.id, jobData);
       // Reset all filters to ensure the new job is visible
       setFilterLabelId('all');
       setFilterMonth('all');
@@ -666,7 +705,7 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
         ...jobTemplate,
         labelId: labelId ?? undefined,
     };
-    onEditJob(business.id, updatedJob, !!updatedJob.googleCalendarEventId);
+    onEditJob(business.id, updatedJob);
     setIsLabelModalOpen(false);
     setJobForLabeling(null);
   };
@@ -929,7 +968,6 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                                                 <p className={`font-bold text-gray-800 ${isCompleted ? 'line-through text-gray-400' : ''}`}>
                                                     {job.category === 'task' && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full mr-2">TUGAS</span>}
                                                     {job.isRecurring && <span className="align-middle text-xs font-semibold px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full mr-2">MINGGUAN</span>}
-                                                    {job.googleCalendarEventId && <CalendarPlusIcon className="inline-block w-4 h-4 text-blue-500 mr-1" />}
                                                     {job.title}
                                                 </p>
                                                 {job.description && <p className={`text-sm text-gray-600 mt-1 whitespace-pre-wrap ${isCompleted ? 'line-through text-gray-400' : ''}`}>{job.description}</p>}
@@ -1223,24 +1261,6 @@ const BusinessDetail: React.FC<BusinessDetailProps> = ({
                 </>
               )}
               
-               {hasGCalAccess && !jobFormData.isRecurring && (
-                  <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
-                      <input
-                          id="gcal-sync"
-                          type="checkbox"
-                          checked={syncToGCal}
-                          onChange={e => setSyncToGCal(e.target.checked)}
-                          className="h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                          title={jobFormData.isRecurring ? "Sinkronisasi belum didukung untuk jadwal berulang" : ""}
-                      />
-                      <label htmlFor="gcal-sync" className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                          <CalendarPlusIcon className="w-5 h-5 text-blue-600"/>
-                          Sinkronkan ke Google Calendar
-                      </label>
-                  </div>
-              )}
-
-
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setIsJobModalOpen(false)} className="px-4 py-2 font-semibold text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300">Batal</button>
                 <button type="submit" className="px-4 py-2 font-semibold text-white rounded-lg bg-primary-600 hover:bg-primary-700">Simpan</button>
